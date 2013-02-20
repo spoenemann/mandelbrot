@@ -37,11 +37,11 @@ public class MandelbrotCanvas extends JPanel {
                 if (x < buffer.length && y < buffer[x].length) {
                     double value = buffer[x][y];
                     if (value < 0) {
-                        int shade = (int) (-256 * value);
+                        int shade = (int) (-224 * value);
                         g.setColor(new Color(shade, shade, shade));
                     } else {
                         int shade = (int) (256 * value);
-                        g.setColor(new Color(shade, shade, 255));
+                        g.setColor(new Color(shade, shade, 224));
                     }
                     g.drawLine(x, y, x, y);
                 }
