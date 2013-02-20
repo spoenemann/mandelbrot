@@ -15,22 +15,24 @@ public class MandelbrotCalculator {
     
     public static final int DEFAULT_ITERATION_LIMIT = 1000;
     public static final double DEFAULT_DIVERGENCE_THRESHOLD = 2.0;
+    public static final double DIVERGE_FACTOR = 0.4;
+    public static final double NON_DIVERGE_FACTOR = 3.0;
     
     public interface CalculationListener {
-        void pixelCalculated(int x, int y, int value);
+        void pixelCalculated(int x, int y, double value);
     }
     
     private List<CalculationListener> listeners = new ArrayList<CalculationListener>();
     private ExecutorService executorService = Executors.newCachedThreadPool();
     private int pixelWidth = 0;
     private int pixelHeight = 0;
-    private int[][] buffer = new int[pixelWidth][pixelHeight];
+    private double[][] buffer = new double[pixelWidth][pixelHeight];
     private int iterationLimit;
     private double threshold;
-    private double centerRe = -1.5;
+    private double centerRe = 0.0;
     private double centerIm = 0.0;
-    private double realWidth = 2.0;
-    private double imaginaryHeight = 2.0;
+    private double realWidth = 4.0;
+    private double imaginaryHeight = 4.0;
     
     public MandelbrotCalculator(int iterationLimit, double divergeceThreshold) {
         this.iterationLimit = iterationLimit;
@@ -41,22 +43,35 @@ public class MandelbrotCalculator {
         this(DEFAULT_ITERATION_LIMIT, DEFAULT_DIVERGENCE_THRESHOLD);
     }
     
-    public int[][] getBuffer() {
+    public int getIterationLimit() {
+        return iterationLimit;
+    }
+    
+    public double[][] getBuffer() {
         return buffer;
     }
     
     public void addListener(CalculationListener listener) {
-        listeners.add(listener);
+        synchronized (listeners) {
+            listeners.add(listener);
+        }
     }
     
     public void removeListener(CalculationListener listener) {
-        listeners.remove(listener);
+        synchronized (listeners) {
+            listeners.remove(listener);
+        }
     }
     
-    public void resize(final int width, final int height) {
-        this.pixelWidth = width;
-        this.pixelHeight = height;
-        buffer = new int[pixelWidth][pixelHeight];
+    public void resize(final int newWidth, final int newHeight) {
+        assert newWidth >= 0 && newHeight >= 0;
+        int oldWidth = this.pixelWidth;
+        int oldHeight = this.pixelHeight;
+        double[][] oldBuffer = this.buffer;
+        this.buffer = new double[newWidth][newHeight];
+        this.pixelWidth = newWidth;
+        this.pixelHeight = newHeight;
+        
         recalculate();
     }
     
@@ -67,7 +82,8 @@ public class MandelbrotCalculator {
                 final int they = y;
                 executorService.submit(new Runnable() {
                     public void run() {
-                        int value = calculate(thex, they);
+                        double value = calculate(thex, they);
+                        buffer[thex][they] = value;
                         synchronized (listeners) {
                             for (CalculationListener listener : listeners) {
                                 listener.pixelCalculated(thex, they, value);
@@ -79,10 +95,10 @@ public class MandelbrotCalculator {
         }
     }
     
-    private int calculate(int x, int y) {
+    private double calculate(int x, int y) {
         double maxAbsolute = threshold * threshold;
-        double cre = ((double) x + 0.5) / pixelWidth * realWidth;
-        double cim = ((double) y + 0.5) / pixelHeight * imaginaryHeight;
+        double cre = centerRe + (((double) x + 0.5) / pixelWidth - 0.5) * realWidth;
+        double cim = centerIm + (((double) y + 0.5) / pixelHeight - 0.5) * imaginaryHeight;
         
         double absolute;
         int i = 0;
@@ -98,9 +114,9 @@ public class MandelbrotCalculator {
         } while (absolute <= maxAbsolute && i < iterationLimit);
         
         if (i < iterationLimit) {
-            return i;
+            return 2 * Math.atan(DIVERGE_FACTOR * i) / Math.PI;
         } else {
-            return Integer.MAX_VALUE;
+            return -2 * Math.atan(NON_DIVERGE_FACTOR * absolute) / Math.PI;
         }
     }
 
