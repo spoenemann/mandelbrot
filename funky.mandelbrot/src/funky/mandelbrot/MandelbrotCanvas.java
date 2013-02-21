@@ -5,6 +5,7 @@ package funky.mandelbrot;
 
 import java.awt.Color;
 import java.awt.Graphics;
+import java.awt.Rectangle;
 
 import javax.swing.JPanel;
 
@@ -26,14 +27,19 @@ public class MandelbrotCanvas extends JPanel {
         });
     }
     
+    public void dispose() {
+        calculator.shutdown();
+    }
+    
     /**
      * {@inheritDoc}
      */
     @Override
     public void paint(Graphics g) {
         double[][] buffer = calculator.getBuffer();
-        for (int x = 0; x < getWidth(); x++) {
-            for (int y = 0; y < getHeight(); y++) {
+        Rectangle clip = g.getClipBounds();
+        for (int x = clip.x; x < clip.x + clip.width; x++) {
+            for (int y = clip.y; y < clip.y + clip.height; y++) {
                 if (x < buffer.length && y < buffer[x].length) {
                     double value = buffer[x][y];
                     if (value < 0) {

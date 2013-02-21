@@ -25,8 +25,8 @@ public class MandelbrotCalculator {
     }
     
     private List<CalculationListener> listeners = new ArrayList<CalculationListener>();
-    private Set<PointCalculator> runningCalculators = new HashSet<PointCalculator>();
-    private ExecutorService executorService = Executors.newFixedThreadPool(16);
+    private Set<CalculationWorker> runningCalculators = new HashSet<CalculationWorker>();
+    private ExecutorService executorService = Executors.newCachedThreadPool();
     private int pixelWidth = 0;
     private int pixelHeight = 0;
     private double[][] valueBuffer = new double[pixelWidth][pixelHeight];
@@ -46,8 +46,8 @@ public class MandelbrotCalculator {
         this(DEFAULT_ITERATION_LIMIT, DEFAULT_DIVERGENCE_THRESHOLD);
     }
     
-    public int getIterationLimit() {
-        return iterationLimit;
+    public void shutdown() {
+        executorService.shutdownNow();
     }
     
     public double[][] getBuffer() {
@@ -113,57 +113,54 @@ public class MandelbrotCalculator {
     
     private void recalculate(final double[][] buffer) {
         synchronized (runningCalculators) {
-            for (PointCalculator pointCalculator : runningCalculators) {
+            for (CalculationWorker pointCalculator : runningCalculators) {
                 pointCalculator.aborted = true;
             }
-            runningCalculators.clear();
         }
         
-        executorService.submit(new Runnable() {
-            public void run() {
-                for (int x = 0; x < buffer.length; x++) {
-                    for (int y = 0; y < buffer[x].length; y++) {
-                        PointCalculator pointCalculator = new PointCalculator(buffer, x, y);
-                        synchronized (runningCalculators) {
-                            runningCalculators.add(pointCalculator);
-                        }
-                        executorService.submit(pointCalculator);
-                    }
-                }
-            }
-        });
+        CalculationWorker pointCalculator = new CalculationWorker(buffer);
+        synchronized (runningCalculators) {
+            runningCalculators.add(pointCalculator);
+        }
+        executorService.submit(pointCalculator);
     }
     
-    private class PointCalculator implements Runnable {
+    private class CalculationWorker implements Runnable {
         
         private double[][] buffer;
-        private int x;
-        private int y;
         private boolean aborted = false;
         
-        PointCalculator(double[][] buffer, int x, int y) {
+        CalculationWorker(double[][] buffer) {
             this.buffer = buffer;
-            this.x = x;
-            this.y = y;
         }
         
         public void run() {
-            double value = calculate();
-            if (!aborted) {
-                buffer[x][y] = value;
-                
-                synchronized (listeners) {
-                    for (CalculationListener listener : listeners) {
-                        listener.pixelCalculated(x, y, value);
+            try {
+                for (int x = 0; x < buffer.length; x++) {
+                    for (int y = 0; y < buffer[x].length; y++) {
+                        double value = calculate(x, y);
+                        
+                        if (aborted) {
+                            return;
+                        }
+                        
+                        buffer[x][y] = value;
+                        
+                        synchronized (listeners) {
+                            for (CalculationListener listener : listeners) {
+                                listener.pixelCalculated(x, y, value);
+                            }
+                        }
                     }
                 }
+            } finally {
                 synchronized (runningCalculators) {
                     runningCalculators.remove(this);
                 }
             }
         }
         
-        private double calculate() {
+        private double calculate(int x, int y) {
             double maxAbsolute = threshold * threshold;
             double cre = centerRe + (((double) x + 0.5) / pixelWidth - 0.5) * realWidth;
             double cim = centerIm + (((double) y + 0.5) / pixelHeight - 0.5) * imaginaryHeight;
