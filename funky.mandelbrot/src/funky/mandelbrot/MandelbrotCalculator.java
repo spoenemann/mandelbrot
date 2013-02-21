@@ -3,6 +3,7 @@
  */
 package funky.mandelbrot;
 
+import java.awt.Rectangle;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -17,11 +18,13 @@ public class MandelbrotCalculator {
     
     public static final int DEFAULT_ITERATION_LIMIT = 1000;
     public static final double DEFAULT_DIVERGENCE_THRESHOLD = 2.0;
-    public static final double DIVERGE_FACTOR = 0.4;
-    public static final double NON_DIVERGE_FACTOR = 3.0;
+    
+    private static final double DIVERGE_FACTOR = 0.4;
+    private static final double NON_DIVERGE_FACTOR = 3.0;
+    private static final long CALCULATION_REPORT_PERIOD = 40;
     
     public interface CalculationListener {
-        void pixelCalculated(int x, int y, double value);
+        void calculated(Rectangle area, double[][] buffer);
     }
     
     private List<CalculationListener> listeners = new ArrayList<CalculationListener>();
@@ -107,18 +110,31 @@ public class MandelbrotCalculator {
             pixelHeight = newHeight;
             valueBuffer = newBuffer;
             
-            recalculate(valueBuffer);
+            abortCalculations();
+            
+            if (newWidth > oldWidth) {
+                int xmargin = (newWidth - oldWidth) / 2;
+                recalculate(newBuffer, new Rectangle(0, 0, xmargin, newHeight));
+                recalculate(newBuffer, new Rectangle(newWidth - xmargin, 0, xmargin, newHeight));
+            }
+            if (newHeight > oldHeight && oldWidth > 0) {
+                int ymargin = (newHeight - oldHeight) / 2;
+                recalculate(newBuffer, new Rectangle(newxStart, 0, oldWidth, ymargin));
+                recalculate(newBuffer, new Rectangle(newxStart, newHeight - ymargin, oldWidth, ymargin));
+            }
         }
     }
     
-    private void recalculate(final double[][] buffer) {
+    private void abortCalculations() {
         synchronized (runningCalculators) {
             for (CalculationWorker pointCalculator : runningCalculators) {
                 pointCalculator.aborted = true;
             }
         }
-        
-        CalculationWorker pointCalculator = new CalculationWorker(buffer);
+    }
+    
+    private void recalculate(double[][] buffer, Rectangle area) {
+        CalculationWorker pointCalculator = new CalculationWorker(buffer, area);
         synchronized (runningCalculators) {
             runningCalculators.add(pointCalculator);
         }
@@ -128,16 +144,20 @@ public class MandelbrotCalculator {
     private class CalculationWorker implements Runnable {
         
         private double[][] buffer;
+        private Rectangle area;
         private boolean aborted = false;
         
-        CalculationWorker(double[][] buffer) {
+        CalculationWorker(double[][] buffer, Rectangle area) {
             this.buffer = buffer;
+            this.area = area;
         }
         
         public void run() {
             try {
-                for (int x = 0; x < buffer.length; x++) {
-                    for (int y = 0; y < buffer[x].length; y++) {
+                int reportStart = area.x;
+                long lastReport = System.currentTimeMillis();
+                for (int x = area.x; x < area.x + area.width; x++) {
+                    for (int y = area.y; y < area.y + area.height; y++) {
                         double value = calculate(x, y);
                         
                         if (aborted) {
@@ -145,11 +165,29 @@ public class MandelbrotCalculator {
                         }
                         
                         buffer[x][y] = value;
-                        
+                    }
+                    
+                    long currentTime = System.currentTimeMillis();
+                    if (currentTime - lastReport >= CALCULATION_REPORT_PERIOD) {
+                        Rectangle areaToReport = new Rectangle(reportStart, area.y,
+                                x - reportStart + 1, area.height);
                         synchronized (listeners) {
                             for (CalculationListener listener : listeners) {
-                                listener.pixelCalculated(x, y, value);
+                                listener.calculated(areaToReport, buffer);
                             }
+                        }
+                        
+                        reportStart = x + 1;
+                        lastReport = currentTime;
+                    }
+                }
+                
+                if (reportStart < area.x + area.width) {
+                    Rectangle areaToReport = new Rectangle(reportStart, area.y,
+                            area.x + area.width - reportStart, area.height);
+                    synchronized (listeners) {
+                        for (CalculationListener listener : listeners) {
+                            listener.calculated(areaToReport, buffer);
                         }
                     }
                 }

@@ -21,8 +21,8 @@ public class MandelbrotCanvas extends JPanel {
     public MandelbrotCanvas() {
         calculator = new MandelbrotCalculator();
         calculator.addListener(new MandelbrotCalculator.CalculationListener() {
-            public void pixelCalculated(int x, int y, double value) {
-                repaint(x, y, 1, 1);
+            public void calculated(Rectangle area, double[][] buffer) {
+                repaint(area);
             }
         });
     }
