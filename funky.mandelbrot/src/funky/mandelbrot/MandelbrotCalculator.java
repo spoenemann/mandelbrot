@@ -19,6 +19,7 @@ public class MandelbrotCalculator {
     public static final int DEFAULT_ITERATION_LIMIT = 1000;
     public static final double DEFAULT_DIVERGENCE_THRESHOLD = 2.0;
     
+    private static final double START_WIDTH = 4.0;
     private static final double DIVERGE_FACTOR = 0.4;
     private static final double NON_DIVERGE_FACTOR = 3.0;
     private static final long CALCULATION_REPORT_PERIOD = 40;
@@ -30,15 +31,15 @@ public class MandelbrotCalculator {
     private List<CalculationListener> listeners = new ArrayList<CalculationListener>();
     private Set<CalculationWorker> runningCalculators = new HashSet<CalculationWorker>();
     private ExecutorService executorService = Executors.newCachedThreadPool();
-    private int pixelWidth = 0;
-    private int pixelHeight = 0;
-    private double[][] valueBuffer = new double[pixelWidth][pixelHeight];
+    private double[][] valueBuffer = new double[0][0];
+    private int pixelWidth;
+    private int pixelHeight;
     private int iterationLimit;
     private double threshold;
-    private double centerRe = 0.0;
-    private double centerIm = 0.0;
-    private double realWidth = 4.0;
-    private double imaginaryHeight = 4.0;
+    private double centerRe;
+    private double centerIm;
+    private double realWidth;
+    private double imaginaryHeight;
     
     public MandelbrotCalculator(int iterationLimit, double divergeceThreshold) {
         this.iterationLimit = iterationLimit;
@@ -74,6 +75,7 @@ public class MandelbrotCalculator {
         int oldWidth = this.pixelWidth;
         int oldHeight = this.pixelHeight;
         if (newWidth != oldWidth || newHeight != oldHeight) {
+            
             double[][] oldBuffer = this.valueBuffer;
             double[][] newBuffer = new double[newWidth][newHeight];
             
@@ -100,10 +102,14 @@ public class MandelbrotCalculator {
                 }
             }
 
-            if (oldWidth != 0) {
+            if (oldWidth == 0) {
+                realWidth = START_WIDTH;
+            } else {
                 realWidth = realWidth * newWidth / oldWidth;
             }
-            if (oldHeight != 0) {
+            if (oldHeight == 0) {
+                imaginaryHeight = START_WIDTH * newHeight / newWidth;
+            } else {
                 imaginaryHeight = imaginaryHeight * newHeight / oldHeight;
             }
             pixelWidth = newWidth;
@@ -112,16 +118,7 @@ public class MandelbrotCalculator {
             
             abortCalculations();
             
-            if (newWidth > oldWidth) {
-                int xmargin = (newWidth - oldWidth) / 2;
-                recalculate(newBuffer, new Rectangle(0, 0, xmargin, newHeight));
-                recalculate(newBuffer, new Rectangle(newWidth - xmargin, 0, xmargin, newHeight));
-            }
-            if (newHeight > oldHeight && oldWidth > 0) {
-                int ymargin = (newHeight - oldHeight) / 2;
-                recalculate(newBuffer, new Rectangle(newxStart, 0, oldWidth, ymargin));
-                recalculate(newBuffer, new Rectangle(newxStart, newHeight - ymargin, oldWidth, ymargin));
-            }
+            recalculate(newBuffer, true);
         }
     }
     
@@ -133,8 +130,8 @@ public class MandelbrotCalculator {
         }
     }
     
-    private void recalculate(double[][] buffer, Rectangle area) {
-        CalculationWorker pointCalculator = new CalculationWorker(buffer, area);
+    private void recalculate(double[][] buffer, boolean onlyBlanks) {
+        CalculationWorker pointCalculator = new CalculationWorker(buffer, onlyBlanks);
         synchronized (runningCalculators) {
             runningCalculators.add(pointCalculator);
         }
@@ -144,33 +141,34 @@ public class MandelbrotCalculator {
     private class CalculationWorker implements Runnable {
         
         private double[][] buffer;
-        private Rectangle area;
+        private boolean onlyBlanks;
         private boolean aborted = false;
         
-        CalculationWorker(double[][] buffer, Rectangle area) {
+        CalculationWorker(double[][] buffer, boolean onlyBlanks) {
             this.buffer = buffer;
-            this.area = area;
+            this.onlyBlanks = onlyBlanks;
         }
         
         public void run() {
             try {
-                int reportStart = area.x;
+                int reportStart = 0;
                 long lastReport = System.currentTimeMillis();
-                for (int x = area.x; x < area.x + area.width; x++) {
-                    for (int y = area.y; y < area.y + area.height; y++) {
-                        double value = calculate(x, y);
+                for (int x = 0; x < buffer.length; x++) {
+                    for (int y = 0; y < buffer[x].length; y++) {
+                        if (!onlyBlanks || buffer[x][y] == 0) {
+                            double value = calculate(x, y);
+                            buffer[x][y] = value;
+                        }
                         
                         if (aborted) {
                             return;
                         }
-                        
-                        buffer[x][y] = value;
                     }
                     
                     long currentTime = System.currentTimeMillis();
                     if (currentTime - lastReport >= CALCULATION_REPORT_PERIOD) {
-                        Rectangle areaToReport = new Rectangle(reportStart, area.y,
-                                x - reportStart + 1, area.height);
+                        Rectangle areaToReport = new Rectangle(reportStart, 0,
+                                x - reportStart + 1, buffer[x].length);
                         synchronized (listeners) {
                             for (CalculationListener listener : listeners) {
                                 listener.calculated(areaToReport, buffer);
@@ -182,9 +180,9 @@ public class MandelbrotCalculator {
                     }
                 }
                 
-                if (reportStart < area.x + area.width) {
-                    Rectangle areaToReport = new Rectangle(reportStart, area.y,
-                            area.x + area.width - reportStart, area.height);
+                if (reportStart < buffer.length) {
+                    Rectangle areaToReport = new Rectangle(reportStart, 0,
+                            buffer.length - reportStart, buffer[buffer.length - 1].length);
                     synchronized (listeners) {
                         for (CalculationListener listener : listeners) {
                             listener.calculated(areaToReport, buffer);
