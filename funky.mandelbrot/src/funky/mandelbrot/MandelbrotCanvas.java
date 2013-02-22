@@ -5,7 +5,10 @@ package funky.mandelbrot;
 
 import java.awt.Color;
 import java.awt.Graphics;
+import java.awt.Point;
 import java.awt.Rectangle;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 import javax.swing.JPanel;
 
@@ -17,6 +20,7 @@ public class MandelbrotCanvas extends JPanel {
     private static final long serialVersionUID = 7892870465027356734L;
     
     private MandelbrotCalculator calculator;
+    private Point lastMouseLocation = new Point();
     
     public MandelbrotCanvas() {
         calculator = new MandelbrotCalculator();
@@ -25,6 +29,19 @@ public class MandelbrotCanvas extends JPanel {
                 repaint(area);
             }
         });
+        
+        MouseAdapter mouseadapter = new MouseAdapter() {
+            public void mousePressed(MouseEvent e) {
+                lastMouseLocation = e.getPoint();
+            }
+            public void mouseDragged(MouseEvent e) {
+                Point location = e.getPoint();
+                calculator.translate(location.x - lastMouseLocation.x, location.y - lastMouseLocation.y);
+                lastMouseLocation = location;
+            }
+        };
+        this.addMouseListener(mouseadapter);
+        this.addMouseMotionListener(mouseadapter);
     }
     
     public void dispose() {

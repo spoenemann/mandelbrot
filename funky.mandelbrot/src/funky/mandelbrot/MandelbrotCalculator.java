@@ -32,14 +32,15 @@ public class MandelbrotCalculator {
     private Set<CalculationWorker> runningCalculators = new HashSet<CalculationWorker>();
     private ExecutorService executorService = Executors.newCachedThreadPool();
     private double[][] valueBuffer = new double[0][0];
+    private double[][] secondaryValueBuffer;
     private int pixelWidth;
     private int pixelHeight;
     private int iterationLimit;
     private double threshold;
     private double centerRe;
     private double centerIm;
-    private double realWidth;
-    private double imaginaryHeight;
+    private double widthRe;
+    private double heightIm;
     
     public MandelbrotCalculator(int iterationLimit, double divergeceThreshold) {
         this.iterationLimit = iterationLimit;
@@ -75,8 +76,9 @@ public class MandelbrotCalculator {
         int oldWidth = this.pixelWidth;
         int oldHeight = this.pixelHeight;
         if (newWidth != oldWidth || newHeight != oldHeight) {
+            abortCalculations();
             
-            double[][] oldBuffer = this.valueBuffer;
+            double[][] oldBuffer = valueBuffer;
             double[][] newBuffer = new double[newWidth][newHeight];
             
             int copyWidth = Math.min(oldWidth, newWidth);
@@ -103,20 +105,66 @@ public class MandelbrotCalculator {
             }
 
             if (oldWidth == 0) {
-                realWidth = START_WIDTH;
+                widthRe = START_WIDTH;
             } else {
-                realWidth = realWidth * newWidth / oldWidth;
+                widthRe = widthRe * newWidth / oldWidth;
             }
             if (oldHeight == 0) {
-                imaginaryHeight = START_WIDTH * newHeight / newWidth;
+                heightIm = START_WIDTH * newHeight / newWidth;
             } else {
-                imaginaryHeight = imaginaryHeight * newHeight / oldHeight;
+                heightIm = heightIm * newHeight / oldHeight;
             }
             pixelWidth = newWidth;
             pixelHeight = newHeight;
+            secondaryValueBuffer = null;
             valueBuffer = newBuffer;
             
+            recalculate(newBuffer, true);
+        }
+    }
+    
+    public void translate(int deltax, int deltay) {
+        if (deltax != 0 || deltay != 0) {
             abortCalculations();
+            
+            double[][] oldBuffer = valueBuffer;
+            double[][] newBuffer = secondaryValueBuffer;
+            if (newBuffer == null) {
+                newBuffer = new double[pixelWidth][pixelHeight];
+            }
+            
+            int copyWidth = pixelWidth - Math.abs(deltax);
+            int copyHeight = pixelHeight - Math.abs(deltay);
+            int oldxStart = 0;
+            int newxStart = 0;
+            if (deltax > 0) {
+                newxStart = deltax;
+            } else if (deltax < 0) {
+                oldxStart = -deltax;
+            }
+            int oldyStart = 0;
+            int newyStart = 0;
+            if (deltay > 0) {
+                newyStart = deltay;
+            } else if (deltay < 0) {
+                oldyStart = -deltay;
+            }
+            
+            for (int x = 0; x < pixelWidth; x++) {
+                for (int y = 0; y < pixelHeight; y++) {
+                    if (x >= newxStart && x < newxStart + copyWidth
+                            && y >= newyStart && y < newyStart + copyHeight) {
+                        newBuffer[x][y] = oldBuffer[oldxStart + x - newxStart][oldyStart + y - newyStart];
+                    } else {
+                        newBuffer[x][y] = 0;
+                    }
+                }
+            }
+
+            centerRe -= deltax * widthRe / pixelWidth;
+            centerIm -= deltay * heightIm / pixelHeight;
+            valueBuffer = newBuffer;
+            secondaryValueBuffer = oldBuffer;
             
             recalculate(newBuffer, true);
         }
@@ -198,8 +246,8 @@ public class MandelbrotCalculator {
         
         private double calculate(int x, int y) {
             double maxAbsolute = threshold * threshold;
-            double cre = centerRe + (((double) x + 0.5) / pixelWidth - 0.5) * realWidth;
-            double cim = centerIm + (((double) y + 0.5) / pixelHeight - 0.5) * imaginaryHeight;
+            double cre = centerRe + (((double) x + 0.5) / pixelWidth - 0.5) * widthRe;
+            double cim = centerIm + (((double) y + 0.5) / pixelHeight - 0.5) * heightIm;
             
             double absolute;
             int i = 0;
