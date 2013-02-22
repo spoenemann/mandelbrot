@@ -9,6 +9,7 @@ import java.awt.Point;
 import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseWheelEvent;
 
 import javax.swing.JPanel;
 
@@ -16,6 +17,8 @@ import javax.swing.JPanel;
  * @author msp@informatik.uni-kiel.de
  */
 public class MandelbrotCanvas extends JPanel {
+    
+    public static final double ZOOM_PER_WHEEL_UNIT = 1.05;
 
     private static final long serialVersionUID = 7892870465027356734L;
     
@@ -37,11 +40,18 @@ public class MandelbrotCanvas extends JPanel {
             public void mouseDragged(MouseEvent e) {
                 Point location = e.getPoint();
                 calculator.translate(location.x - lastMouseLocation.x, location.y - lastMouseLocation.y);
+                repaint();
                 lastMouseLocation = location;
+            }
+            public void mouseWheelMoved(MouseWheelEvent e) {
+                double zoom = Math.pow(ZOOM_PER_WHEEL_UNIT, -e.getWheelRotation());
+                calculator.zoom(zoom, e.getX(), e.getY());
+                repaint();
             }
         };
         this.addMouseListener(mouseadapter);
         this.addMouseMotionListener(mouseadapter);
+        this.addMouseWheelListener(mouseadapter);
     }
     
     public void dispose() {

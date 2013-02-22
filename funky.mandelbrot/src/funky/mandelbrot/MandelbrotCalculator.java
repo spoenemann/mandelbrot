@@ -16,7 +16,7 @@ import java.util.concurrent.Executors;
  */
 public class MandelbrotCalculator {
     
-    public static final int DEFAULT_ITERATION_LIMIT = 1000;
+    public static final int DEFAULT_ITERATION_LIMIT = 100;
     public static final double DEFAULT_DIVERGENCE_THRESHOLD = 2.0;
     
     private static final double START_WIDTH = 4.0;
@@ -75,99 +75,140 @@ public class MandelbrotCalculator {
         assert newWidth >= 0 && newHeight >= 0;
         int oldWidth = this.pixelWidth;
         int oldHeight = this.pixelHeight;
-        if (newWidth != oldWidth || newHeight != oldHeight) {
-            abortCalculations();
-            
-            double[][] oldBuffer = valueBuffer;
-            double[][] newBuffer = new double[newWidth][newHeight];
-            
-            int copyWidth = Math.min(oldWidth, newWidth);
-            int copyHeight = Math.min(oldHeight, newHeight);
-            int oldxStart = 0;
-            int newxStart = 0;
-            if (newWidth > oldWidth) {
-                newxStart = (newWidth - oldWidth) / 2;
-            } else if (newWidth < oldWidth) {
-                oldxStart = (oldWidth - newWidth) / 2;
-            }
-            int oldyStart = 0;
-            int newyStart = 0;
-            if (newHeight > oldHeight) {
-                newyStart = (newHeight - oldHeight) / 2;
-            } else if (newHeight < oldHeight) {
-                oldyStart = (oldHeight - newHeight) / 2;
-            }
-            
-            for (int x = 0; x < copyWidth; x++) {
-                for (int y = 0; y < copyHeight; y++) {
-                    newBuffer[newxStart + x][newyStart + y] = oldBuffer[oldxStart + x][oldyStart + y];
-                }
-            }
-
-            if (oldWidth == 0) {
-                widthRe = START_WIDTH;
-            } else {
-                widthRe = widthRe * newWidth / oldWidth;
-            }
-            if (oldHeight == 0) {
-                heightIm = START_WIDTH * newHeight / newWidth;
-            } else {
-                heightIm = heightIm * newHeight / oldHeight;
-            }
-            pixelWidth = newWidth;
-            pixelHeight = newHeight;
-            secondaryValueBuffer = null;
-            valueBuffer = newBuffer;
-            
-            recalculate(newBuffer, true);
+        if (newWidth == oldWidth && newHeight == oldHeight) {
+            return;
         }
+        abortCalculations();
+        
+        double[][] oldBuffer = valueBuffer;
+        double[][] newBuffer = new double[newWidth][newHeight];
+        
+        int copyWidth = Math.min(oldWidth, newWidth);
+        int copyHeight = Math.min(oldHeight, newHeight);
+        int oldxStart = 0;
+        int newxStart = 0;
+        if (newWidth > oldWidth) {
+            newxStart = (newWidth - oldWidth) / 2;
+        } else if (newWidth < oldWidth) {
+            oldxStart = (oldWidth - newWidth) / 2;
+        }
+        int oldyStart = 0;
+        int newyStart = 0;
+        if (newHeight > oldHeight) {
+            newyStart = (newHeight - oldHeight) / 2;
+        } else if (newHeight < oldHeight) {
+            oldyStart = (oldHeight - newHeight) / 2;
+        }
+        
+        for (int x = 0; x < copyWidth; x++) {
+            for (int y = 0; y < copyHeight; y++) {
+                newBuffer[newxStart + x][newyStart + y] = oldBuffer[oldxStart + x][oldyStart + y];
+            }
+        }
+
+        if (oldWidth == 0) {
+            widthRe = START_WIDTH;
+        } else {
+            widthRe = widthRe * newWidth / oldWidth;
+        }
+        if (oldHeight == 0) {
+            heightIm = START_WIDTH * newHeight / newWidth;
+        } else {
+            heightIm = heightIm * newHeight / oldHeight;
+        }
+        pixelWidth = newWidth;
+        pixelHeight = newHeight;
+        secondaryValueBuffer = null;
+        valueBuffer = newBuffer;
+        
+        recalculate(newBuffer, true);
     }
     
     public void translate(int deltax, int deltay) {
-        if (deltax != 0 || deltay != 0) {
-            abortCalculations();
-            
-            double[][] oldBuffer = valueBuffer;
-            double[][] newBuffer = secondaryValueBuffer;
-            if (newBuffer == null) {
-                newBuffer = new double[pixelWidth][pixelHeight];
-            }
-            
-            int copyWidth = pixelWidth - Math.abs(deltax);
-            int copyHeight = pixelHeight - Math.abs(deltay);
-            int oldxStart = 0;
-            int newxStart = 0;
-            if (deltax > 0) {
-                newxStart = deltax;
-            } else if (deltax < 0) {
-                oldxStart = -deltax;
-            }
-            int oldyStart = 0;
-            int newyStart = 0;
-            if (deltay > 0) {
-                newyStart = deltay;
-            } else if (deltay < 0) {
-                oldyStart = -deltay;
-            }
-            
-            for (int x = 0; x < pixelWidth; x++) {
-                for (int y = 0; y < pixelHeight; y++) {
-                    if (x >= newxStart && x < newxStart + copyWidth
-                            && y >= newyStart && y < newyStart + copyHeight) {
-                        newBuffer[x][y] = oldBuffer[oldxStart + x - newxStart][oldyStart + y - newyStart];
-                    } else {
-                        newBuffer[x][y] = 0;
-                    }
+        if (deltax == 0 && deltay == 0) {
+            return;
+        }
+        abortCalculations();
+        
+        double[][] oldBuffer = valueBuffer;
+        double[][] newBuffer = secondaryValueBuffer;
+        if (newBuffer == null) {
+            newBuffer = new double[pixelWidth][pixelHeight];
+        }
+        
+        int copyWidth = Math.max(0, pixelWidth - Math.abs(deltax));
+        int copyHeight = Math.max(0, pixelHeight - Math.abs(deltay));
+        int oldxStart = 0;
+        int newxStart = 0;
+        if (deltax > 0) {
+            newxStart = deltax;
+        } else if (deltax < 0) {
+            oldxStart = -deltax;
+        }
+        int oldyStart = 0;
+        int newyStart = 0;
+        if (deltay > 0) {
+            newyStart = deltay;
+        } else if (deltay < 0) {
+            oldyStart = -deltay;
+        }
+        
+        for (int x = 0; x < pixelWidth; x++) {
+            for (int y = 0; y < pixelHeight; y++) {
+                if (x >= newxStart && x < newxStart + copyWidth
+                        && y >= newyStart && y < newyStart + copyHeight) {
+                    newBuffer[x][y] = oldBuffer[oldxStart + x - newxStart][oldyStart + y - newyStart];
+                } else {
+                    newBuffer[x][y] = 0;
                 }
             }
-
-            centerRe -= deltax * widthRe / pixelWidth;
-            centerIm -= deltay * heightIm / pixelHeight;
-            valueBuffer = newBuffer;
-            secondaryValueBuffer = oldBuffer;
-            
-            recalculate(newBuffer, true);
         }
+
+        centerRe -= deltax * widthRe / pixelWidth;
+        centerIm -= deltay * heightIm / pixelHeight;
+        valueBuffer = newBuffer;
+        secondaryValueBuffer = oldBuffer;
+        
+        recalculate(newBuffer, true);
+    }
+    
+    public void zoom(double factor, int focusx, int focusy) {
+        assert factor > 0;
+        if (factor == 1) {
+            return;
+        }
+        abortCalculations();
+        
+        double[][] oldBuffer = valueBuffer;
+        double[][] newBuffer = secondaryValueBuffer;
+        if (newBuffer == null) {
+            newBuffer = new double[pixelWidth][pixelHeight];
+        }
+
+        double inverseFactor = 1 / factor;
+        for (int x = 0; x < pixelWidth; x++) {
+            for (int y = 0; y < pixelHeight; y++) {
+                int sourcex = (int) Math.round(focusx + inverseFactor * (x - focusx));
+                int sourcey = (int) Math.round(focusy + inverseFactor * (y - focusy));
+                if (sourcex >= 0 && sourcex < pixelWidth && sourcey >= 0 && sourcey < pixelHeight) {
+                    newBuffer[x][y] = oldBuffer[sourcex][sourcey];
+                } else {
+                    newBuffer[x][y] = 0;
+                }
+            }
+        }
+
+        double oldCenterx = (double) pixelWidth / 2;
+        centerRe += widthRe * (1 - inverseFactor) * (focusx - oldCenterx) / pixelWidth;
+        double oldCentery = (double) pixelHeight / 2;
+        centerIm += heightIm * (1 - inverseFactor) * (focusy - oldCentery) / pixelHeight;
+        
+        widthRe *= inverseFactor;
+        heightIm *= inverseFactor;
+        valueBuffer = newBuffer;
+        secondaryValueBuffer = oldBuffer;
+        
+        recalculate(newBuffer, false);
     }
     
     private void abortCalculations() {
@@ -246,8 +287,8 @@ public class MandelbrotCalculator {
         
         private double calculate(int x, int y) {
             double maxAbsolute = threshold * threshold;
-            double cre = centerRe + (((double) x + 0.5) / pixelWidth - 0.5) * widthRe;
-            double cim = centerIm + (((double) y + 0.5) / pixelHeight - 0.5) * heightIm;
+            double cre = centerRe + ((double) x / pixelWidth - 0.5) * widthRe;
+            double cim = centerIm + ((double) y / pixelHeight - 0.5) * heightIm;
             
             double absolute;
             int i = 0;
