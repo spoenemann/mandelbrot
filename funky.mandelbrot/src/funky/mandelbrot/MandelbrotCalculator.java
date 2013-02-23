@@ -10,14 +10,15 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * @author msp@informatik.uni-kiel.de
  */
 public class MandelbrotCalculator {
     
-    public static final int DEFAULT_ITERATION_LIMIT = 100;
-    public static final double DEFAULT_DIVERGENCE_THRESHOLD = 2.0;
+    public static final double ITERATION_FACTOR = 15.0;
+    public static final double DIVERGENCE_THRESHOLD = 2.0;
     
     private static final double START_WIDTH = 4.0;
     private static final double DIVERGE_FACTOR = 0.4;
@@ -35,21 +36,10 @@ public class MandelbrotCalculator {
     private double[][] secondaryValueBuffer;
     private int pixelWidth;
     private int pixelHeight;
-    private int iterationLimit;
-    private double threshold;
     private double centerRe;
     private double centerIm;
     private double widthRe;
     private double heightIm;
-    
-    public MandelbrotCalculator(int iterationLimit, double divergeceThreshold) {
-        this.iterationLimit = iterationLimit;
-        this.threshold = divergeceThreshold;
-    }
-    
-    public MandelbrotCalculator() {
-        this(DEFAULT_ITERATION_LIMIT, DEFAULT_DIVERGENCE_THRESHOLD);
-    }
     
     public void shutdown() {
         executorService.shutdownNow();
@@ -211,10 +201,25 @@ public class MandelbrotCalculator {
         recalculate(newBuffer, false);
     }
     
+    public void resumeCalulations() {
+        synchronized (runningCalculators) {
+            for (CalculationWorker pointCalculator : runningCalculators) {
+                synchronized (pointCalculator.forceWait) {
+                    pointCalculator.forceWait.set(false);
+                    pointCalculator.forceWait.notify();                    
+                }
+            }
+        }
+    }
+    
     private void abortCalculations() {
         synchronized (runningCalculators) {
             for (CalculationWorker pointCalculator : runningCalculators) {
                 pointCalculator.aborted = true;
+                synchronized (pointCalculator.forceWait) {
+                    pointCalculator.forceWait.set(false);
+                    pointCalculator.forceWait.notify();                    
+                }
             }
         }
     }
@@ -232,6 +237,7 @@ public class MandelbrotCalculator {
         private double[][] buffer;
         private boolean onlyBlanks;
         private boolean aborted = false;
+        private AtomicBoolean forceWait = new AtomicBoolean(true);
         
         CalculationWorker(double[][] buffer, boolean onlyBlanks) {
             this.buffer = buffer;
@@ -240,12 +246,25 @@ public class MandelbrotCalculator {
         
         public void run() {
             try {
+                synchronized (forceWait) {
+                    while (forceWait.get()) {
+                        forceWait.wait();
+                        if (aborted) {
+                            return;
+                        }
+                    }
+                }
+                
+                int iterationLimit = (int) (ITERATION_FACTOR * Math.log(pixelWidth / widthRe));
+                System.out.println(iterationLimit);
+                double threshold = DIVERGENCE_THRESHOLD * DIVERGENCE_THRESHOLD;
+                
                 int reportStart = 0;
                 long lastReport = System.currentTimeMillis();
                 for (int x = 0; x < buffer.length; x++) {
                     for (int y = 0; y < buffer[x].length; y++) {
                         if (!onlyBlanks || buffer[x][y] == 0) {
-                            double value = calculate(x, y);
+                            double value = calculate(x, y, iterationLimit, threshold);
                             buffer[x][y] = value;
                         }
                         
@@ -263,6 +282,14 @@ public class MandelbrotCalculator {
                                 listener.calculated(areaToReport, buffer);
                             }
                         }
+                        synchronized (forceWait) {
+                            while (forceWait.get()) {
+                                forceWait.wait();
+                                if (aborted) {
+                                    return;
+                                }
+                            }
+                        }
                         
                         reportStart = x + 1;
                         lastReport = currentTime;
@@ -278,6 +305,8 @@ public class MandelbrotCalculator {
                         }
                     }
                 }
+            } catch (InterruptedException exception) {
+                // terminate the thread on interruption
             } finally {
                 synchronized (runningCalculators) {
                     runningCalculators.remove(this);
@@ -285,8 +314,7 @@ public class MandelbrotCalculator {
             }
         }
         
-        private double calculate(int x, int y) {
-            double maxAbsolute = threshold * threshold;
+        private double calculate(int x, int y, int iterationLimit, double threshold) {
             double cre = centerRe + ((double) x / pixelWidth - 0.5) * widthRe;
             double cim = centerIm + ((double) y / pixelHeight - 0.5) * heightIm;
             
@@ -301,7 +329,7 @@ public class MandelbrotCalculator {
                 im = nextim;
                 i++;
                 absolute = re * re + im * im;
-            } while (!aborted && absolute <= maxAbsolute && i < iterationLimit);
+            } while (!aborted && absolute <= threshold && i < iterationLimit);
             
             if (aborted) {
                 return 0;

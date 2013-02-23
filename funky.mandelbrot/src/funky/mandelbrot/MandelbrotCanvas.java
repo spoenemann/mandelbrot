@@ -80,6 +80,7 @@ public class MandelbrotCanvas extends JPanel {
                 }
             }
         }
+        calculator.resumeCalulations();
     }
     
     /**
