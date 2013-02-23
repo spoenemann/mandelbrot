@@ -13,6 +13,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
+ * Calculator class that generates data for drawing Mandelbrot fractals.
+ * 
  * @author msp@informatik.uni-kiel.de
  */
 public class MandelbrotCalculator {
@@ -21,19 +23,17 @@ public class MandelbrotCalculator {
     public static final double DIVERGENCE_THRESHOLD = 2.0;
     
     private static final double START_WIDTH = 4.0;
-    private static final double DIVERGE_FACTOR = 0.4;
-    private static final double NON_DIVERGE_FACTOR = 3.0;
     private static final long CALCULATION_REPORT_PERIOD = 40;
     
     public interface CalculationListener {
-        void calculated(Rectangle area, double[][] buffer);
+        void calculated(Rectangle area, int[][] buffer);
     }
     
     private List<CalculationListener> listeners = new ArrayList<CalculationListener>();
     private Set<CalculationWorker> runningCalculators = new HashSet<CalculationWorker>();
     private ExecutorService executorService = Executors.newCachedThreadPool();
-    private double[][] valueBuffer = new double[0][0];
-    private double[][] secondaryValueBuffer;
+    private int[][] valueBuffer = new int[0][0];
+    private int[][] secondaryValueBuffer;
     private int pixelWidth;
     private int pixelHeight;
     private double centerRe;
@@ -45,7 +45,7 @@ public class MandelbrotCalculator {
         executorService.shutdownNow();
     }
     
-    public double[][] getBuffer() {
+    public int[][] getBuffer() {
         return valueBuffer;
     }
     
@@ -70,8 +70,8 @@ public class MandelbrotCalculator {
         }
         abortCalculations();
         
-        double[][] oldBuffer = valueBuffer;
-        double[][] newBuffer = new double[newWidth][newHeight];
+        int[][] oldBuffer = valueBuffer;
+        int[][] newBuffer = new int[newWidth][newHeight];
         
         int copyWidth = Math.min(oldWidth, newWidth);
         int copyHeight = Math.min(oldHeight, newHeight);
@@ -120,10 +120,10 @@ public class MandelbrotCalculator {
         }
         abortCalculations();
         
-        double[][] oldBuffer = valueBuffer;
-        double[][] newBuffer = secondaryValueBuffer;
+        int[][] oldBuffer = valueBuffer;
+        int[][] newBuffer = secondaryValueBuffer;
         if (newBuffer == null) {
-            newBuffer = new double[pixelWidth][pixelHeight];
+            newBuffer = new int[pixelWidth][pixelHeight];
         }
         
         int copyWidth = Math.max(0, pixelWidth - Math.abs(deltax));
@@ -169,10 +169,10 @@ public class MandelbrotCalculator {
         }
         abortCalculations();
         
-        double[][] oldBuffer = valueBuffer;
-        double[][] newBuffer = secondaryValueBuffer;
+        int[][] oldBuffer = valueBuffer;
+        int[][] newBuffer = secondaryValueBuffer;
         if (newBuffer == null) {
-            newBuffer = new double[pixelWidth][pixelHeight];
+            newBuffer = new int[pixelWidth][pixelHeight];
         }
 
         double inverseFactor = 1 / factor;
@@ -224,7 +224,7 @@ public class MandelbrotCalculator {
         }
     }
     
-    private void recalculate(double[][] buffer, boolean onlyBlanks) {
+    private void recalculate(int[][] buffer, boolean onlyBlanks) {
         CalculationWorker pointCalculator = new CalculationWorker(buffer, onlyBlanks);
         synchronized (runningCalculators) {
             runningCalculators.add(pointCalculator);
@@ -234,12 +234,12 @@ public class MandelbrotCalculator {
     
     private class CalculationWorker implements Runnable {
         
-        private double[][] buffer;
+        private int[][] buffer;
         private boolean onlyBlanks;
         private boolean aborted = false;
         private AtomicBoolean forceWait = new AtomicBoolean(true);
         
-        CalculationWorker(double[][] buffer, boolean onlyBlanks) {
+        CalculationWorker(int[][] buffer, boolean onlyBlanks) {
             this.buffer = buffer;
             this.onlyBlanks = onlyBlanks;
         }
@@ -256,7 +256,6 @@ public class MandelbrotCalculator {
                 }
                 
                 int iterationLimit = (int) (ITERATION_FACTOR * Math.log(pixelWidth / widthRe));
-                System.out.println(iterationLimit);
                 double threshold = DIVERGENCE_THRESHOLD * DIVERGENCE_THRESHOLD;
                 
                 int reportStart = 0;
@@ -264,7 +263,7 @@ public class MandelbrotCalculator {
                 for (int x = 0; x < buffer.length; x++) {
                     for (int y = 0; y < buffer[x].length; y++) {
                         if (!onlyBlanks || buffer[x][y] == 0) {
-                            double value = calculate(x, y, iterationLimit, threshold);
+                            int value = calculate(x, y, iterationLimit, threshold);
                             buffer[x][y] = value;
                         }
                         
@@ -314,7 +313,7 @@ public class MandelbrotCalculator {
             }
         }
         
-        private double calculate(int x, int y, int iterationLimit, double threshold) {
+        private int calculate(int x, int y, int iterationLimit, double threshold) {
             double cre = centerRe + ((double) x / pixelWidth - 0.5) * widthRe;
             double cim = centerIm + ((double) y / pixelHeight - 0.5) * heightIm;
             
@@ -334,9 +333,9 @@ public class MandelbrotCalculator {
             if (aborted) {
                 return 0;
             } else if (i < iterationLimit) {
-                return 2 * Math.atan(DIVERGE_FACTOR * i) / Math.PI;
+                return i;
             } else {
-                return -2 * Math.atan(NON_DIVERGE_FACTOR * absolute) / Math.PI;
+                return -i;
             }
         }
     }

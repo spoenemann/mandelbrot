@@ -10,12 +10,16 @@ import java.awt.event.WindowEvent;
 import javax.swing.JFrame;
 
 /**
+ * Main class for starting the Mandelbrot application.
+ * 
  * @author msp@informatik.uni-kiel.de
  */
 public class MandelbrotApplication {
 
     /**
-     * @param args
+     * Start the application.
+     * 
+     * @param args command line arguments (ignored by this program)
      */
     public static void main(String[] args) {
         JFrame frame = new JFrame("Funky Mandelbrot");
