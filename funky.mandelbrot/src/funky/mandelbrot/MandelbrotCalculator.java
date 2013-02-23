@@ -19,48 +19,97 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class MandelbrotCalculator {
     
-    public static final double ITERATION_FACTOR = 15.0;
-    public static final double DIVERGENCE_THRESHOLD = 2.0;
-    
+    /** factor for the computed limit on the number of iterations. */
+    private static final double ITERATION_FACTOR = 15.0;
+    /** threshold for the absolute value beyond which diversion is detected. */
+    private static final double DIVERGENCE_THRESHOLD = 2.0;
+    /** initial width of the viewed fractal. */
     private static final double START_WIDTH = 4.0;
+    /** minimal time in milliseconds between reports. */
     private static final long CALCULATION_REPORT_PERIOD = 40;
     
+    /**
+     * Interface for listeners for reporting finished calculations.
+     */
     public interface CalculationListener {
+        
+        /**
+         * The given area of the buffer has been calculated.
+         * 
+         * @param area area of the buffer that is ready to be painted
+         * @param buffer buffer that contains calculations results
+         */
         void calculated(Rectangle area, int[][] buffer);
     }
     
+    /** list of calculation listeners. */
     private List<CalculationListener> listeners = new ArrayList<CalculationListener>();
+    /** currently running calculation worker threads. */
     private Set<CalculationWorker> runningCalculators = new HashSet<CalculationWorker>();
+    /** executor service for running worker threads. */
     private ExecutorService executorService = Executors.newCachedThreadPool();
+    /** the currently used buffer. */
     private int[][] valueBuffer = new int[0][0];
+    /** the secondary buffer used for copying values. */
     private int[][] secondaryValueBuffer;
+    /** the width of the buffers in pixels. */
     private int pixelWidth;
+    /** the height of the buffers in pixels. */
     private int pixelHeight;
+    /** real part of the complex center point (horizontal). */
     private double centerRe;
+    /** imaginary part of the complex center point (vertical). */
     private double centerIm;
+    /** real part of the size of the viewed area (width). */
     private double widthRe;
+    /** imaginary part of the size of the viewed area (height). */
     private double heightIm;
-    
+
+    /**
+     * Shut down the calculator by terminating all worker threads.
+     */
     public void shutdown() {
+        abortCalculations();
         executorService.shutdownNow();
     }
-    
+
+    /**
+     * Returns the currently active buffer for calculation results.
+     * 
+     * @return the active buffer
+     */
     public int[][] getBuffer() {
         return valueBuffer;
     }
     
+    /**
+     * Add a listener to calculation results.
+     * 
+     * @param listener the listener to add
+     */
     public void addListener(CalculationListener listener) {
         synchronized (listeners) {
             listeners.add(listener);
         }
     }
     
+    /**
+     * Remove a listener to calculation results.
+     * 
+     * @param listener the listener to remove
+     */
     public void removeListener(CalculationListener listener) {
         synchronized (listeners) {
             listeners.remove(listener);
         }
     }
     
+    /**
+     * Change the size of the viewed area and update buffers.
+     * 
+     * @param newWidth new width of the viewed area, in pixels
+     * @param newHeight new height of the viewed area, in pixels
+     */
     public void resize(final int newWidth, final int newHeight) {
         assert newWidth >= 0 && newHeight >= 0;
         int oldWidth = this.pixelWidth;
@@ -73,6 +122,7 @@ public class MandelbrotCalculator {
         int[][] oldBuffer = valueBuffer;
         int[][] newBuffer = new int[newWidth][newHeight];
         
+        // prepare values for copying the content that is still visible after resizing
         int copyWidth = Math.min(oldWidth, newWidth);
         int copyHeight = Math.min(oldHeight, newHeight);
         int oldxStart = 0;
@@ -90,12 +140,14 @@ public class MandelbrotCalculator {
             oldyStart = (oldHeight - newHeight) / 2;
         }
         
+        // copy content from the old to the new buffer
         for (int x = 0; x < copyWidth; x++) {
             for (int y = 0; y < copyHeight; y++) {
                 newBuffer[newxStart + x][newyStart + y] = oldBuffer[oldxStart + x][oldyStart + y];
             }
         }
 
+        // update parameters for fractal calculation
         if (oldWidth == 0) {
             widthRe = START_WIDTH;
         } else {
@@ -111,9 +163,16 @@ public class MandelbrotCalculator {
         secondaryValueBuffer = null;
         valueBuffer = newBuffer;
         
+        // trigger a recalculation
         recalculate(newBuffer, true);
     }
     
+    /**
+     * Translate the viewed area by the given amount.
+     * 
+     * @param deltax horizontal translation delta
+     * @param deltay vertical translation delta
+     */
     public void translate(int deltax, int deltay) {
         if (deltax == 0 && deltay == 0) {
             return;
@@ -126,6 +185,7 @@ public class MandelbrotCalculator {
             newBuffer = new int[pixelWidth][pixelHeight];
         }
         
+        // prepare values for copying the content that is still visible after translation
         int copyWidth = Math.max(0, pixelWidth - Math.abs(deltax));
         int copyHeight = Math.max(0, pixelHeight - Math.abs(deltay));
         int oldxStart = 0;
@@ -143,6 +203,7 @@ public class MandelbrotCalculator {
             oldyStart = -deltay;
         }
         
+        // copy content from the old to the new buffer
         for (int x = 0; x < pixelWidth; x++) {
             for (int y = 0; y < pixelHeight; y++) {
                 if (x >= newxStart && x < newxStart + copyWidth
@@ -154,14 +215,24 @@ public class MandelbrotCalculator {
             }
         }
 
+        // update parameters for fractal calculation
         centerRe -= deltax * widthRe / pixelWidth;
         centerIm -= deltay * heightIm / pixelHeight;
         valueBuffer = newBuffer;
         secondaryValueBuffer = oldBuffer;
-        
+
+        // trigger a recalculation
         recalculate(newBuffer, true);
     }
     
+    /**
+     * Zoom the visible area to view a smaller or larger part.
+     * 
+     * @param factor zoom factor: < 1 for zooming in (shrink viewed area),
+     *      > 1 for zooming out (enlarge viewed area)
+     * @param focusx
+     * @param focusy
+     */
     public void zoom(double factor, int focusx, int focusy) {
         assert factor > 0;
         if (factor == 1) {
@@ -175,11 +246,11 @@ public class MandelbrotCalculator {
             newBuffer = new int[pixelWidth][pixelHeight];
         }
 
-        double inverseFactor = 1 / factor;
+        // scale the view according to the zoom factor
         for (int x = 0; x < pixelWidth; x++) {
             for (int y = 0; y < pixelHeight; y++) {
-                int sourcex = (int) Math.round(focusx + inverseFactor * (x - focusx));
-                int sourcey = (int) Math.round(focusy + inverseFactor * (y - focusy));
+                int sourcex = (int) Math.round(focusx + factor * (x - focusx));
+                int sourcey = (int) Math.round(focusy + factor * (y - focusy));
                 if (sourcex >= 0 && sourcex < pixelWidth && sourcey >= 0 && sourcey < pixelHeight) {
                     newBuffer[x][y] = oldBuffer[sourcex][sourcey];
                 } else {
@@ -188,19 +259,24 @@ public class MandelbrotCalculator {
             }
         }
 
+        // update parameters for fractal calculation
         double oldCenterx = (double) pixelWidth / 2;
-        centerRe += widthRe * (1 - inverseFactor) * (focusx - oldCenterx) / pixelWidth;
+        centerRe += widthRe * (1 - factor) * (focusx - oldCenterx) / pixelWidth;
         double oldCentery = (double) pixelHeight / 2;
-        centerIm += heightIm * (1 - inverseFactor) * (focusy - oldCentery) / pixelHeight;
+        centerIm += heightIm * (1 - factor) * (focusy - oldCentery) / pixelHeight;
         
-        widthRe *= inverseFactor;
-        heightIm *= inverseFactor;
+        widthRe *= factor;
+        heightIm *= factor;
         valueBuffer = newBuffer;
         secondaryValueBuffer = oldBuffer;
-        
+
+        // trigger a recalculation
         recalculate(newBuffer, false);
     }
     
+    /**
+     * Resume calculations that are waiting for reaction by the viewer component.
+     */
     public void resumeCalulations() {
         synchronized (runningCalculators) {
             for (CalculationWorker pointCalculator : runningCalculators) {
@@ -212,6 +288,9 @@ public class MandelbrotCalculator {
         }
     }
     
+    /**
+     * Abort all running calculations.
+     */
     private void abortCalculations() {
         synchronized (runningCalculators) {
             for (CalculationWorker pointCalculator : runningCalculators) {
@@ -224,6 +303,13 @@ public class MandelbrotCalculator {
         }
     }
     
+    /**
+     * Perform a recalculation using a worker thread.
+     * 
+     * @param buffer the buffer to use for calculation
+     * @param onlyBlanks if true, only buffer values that are zero are recalculated,
+     *      otherwise all values are recalculated
+     */
     private void recalculate(int[][] buffer, boolean onlyBlanks) {
         CalculationWorker pointCalculator = new CalculationWorker(buffer, onlyBlanks);
         synchronized (runningCalculators) {
@@ -232,18 +318,36 @@ public class MandelbrotCalculator {
         executorService.submit(pointCalculator);
     }
     
+    /**
+     * Calculation worker class.
+     */
     private class CalculationWorker implements Runnable {
         
+        /** the buffer into which values are written. */
         private int[][] buffer;
+        /** if true, only buffer values that are zero are recalculated,
+         *  otherwise all values are recalculated. */
         private boolean onlyBlanks;
+        /** whether the calculation process shall be aborted. */
         private boolean aborted = false;
+        /** whether the thread shall wait until it is notified by the viewer component. */
         private AtomicBoolean forceWait = new AtomicBoolean(true);
         
+        /**
+         * Create a calculation worker thread.
+         * 
+         * @param buffer the buffer into which values are written
+         * @param onlyBlanks if true, only buffer values that are zero are recalculated,
+         *      otherwise all values are recalculated
+         */
         CalculationWorker(int[][] buffer, boolean onlyBlanks) {
             this.buffer = buffer;
             this.onlyBlanks = onlyBlanks;
         }
         
+        /**
+         * Start the calculation.
+         */
         public void run() {
             try {
                 synchronized (forceWait) {
@@ -263,6 +367,7 @@ public class MandelbrotCalculator {
                 for (int x = 0; x < buffer.length; x++) {
                     for (int y = 0; y < buffer[x].length; y++) {
                         if (!onlyBlanks || buffer[x][y] == 0) {
+                            // calculate the current pixel and store it into the buffer
                             int value = calculate(x, y, iterationLimit, threshold);
                             buffer[x][y] = value;
                         }
@@ -274,6 +379,7 @@ public class MandelbrotCalculator {
                     
                     long currentTime = System.currentTimeMillis();
                     if (currentTime - lastReport >= CALCULATION_REPORT_PERIOD) {
+                        // send a report to the viewer component so it can draw a portion of the fractal
                         Rectangle areaToReport = new Rectangle(reportStart, 0,
                                 x - reportStart + 1, buffer[x].length);
                         synchronized (listeners) {
@@ -305,7 +411,7 @@ public class MandelbrotCalculator {
                     }
                 }
             } catch (InterruptedException exception) {
-                // terminate the thread on interruption
+                // terminate the thread on interruption (should never happen)
             } finally {
                 synchronized (runningCalculators) {
                     runningCalculators.remove(this);
@@ -313,6 +419,16 @@ public class MandelbrotCalculator {
             }
         }
         
+        /**
+         * Calculate the given pixel.
+         * 
+         * @param x horizontal coordinate in the viewed area
+         * @param y vertical coordinate in the viewed area
+         * @param iterationLimit limit on the number of iterations
+         * @param threshold square of the absolute value above which points diverge
+         * @return the number of iterations after which the value exceeds the given threshold,
+         *      or the negative iteration limit if the threshold was not reached
+         */
         private int calculate(int x, int y, int iterationLimit, double threshold) {
             double cre = centerRe + ((double) x / pixelWidth - 0.5) * widthRe;
             double cim = centerIm + ((double) y / pixelHeight - 0.5) * heightIm;
@@ -333,8 +449,10 @@ public class MandelbrotCalculator {
             if (aborted) {
                 return 0;
             } else if (i < iterationLimit) {
+                // the value is diverging
                 return i;
             } else {
+                // the value is not diverging
                 return -i;
             }
         }

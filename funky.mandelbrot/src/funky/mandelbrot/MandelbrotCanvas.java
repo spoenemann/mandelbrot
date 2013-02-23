@@ -26,9 +26,9 @@ public class MandelbrotCanvas extends JPanel {
     /** the serial version UID. */
     private static final long serialVersionUID = 7892870465027356734L;
     /** the color used for non-diverging regions. */
-    private static final Color NON_DIVERGE_COLOR = new Color(128, 48, 48);
+    private static final Color NON_DIVERGE_COLOR = new Color(96, 32, 32);
     /** the number of iterations after which the color gradient repeats. */
-    private static final int COLOR_PERIOD = 80;
+    private static final int COLOR_PERIOD = 64;
     
     /** the calculator class that performs all arithmetic stuff. */
     private final MandelbrotCalculator calculator;
@@ -59,7 +59,7 @@ public class MandelbrotCanvas extends JPanel {
                 lastMouseLocation = location;
             }
             public void mouseWheelMoved(MouseWheelEvent e) {
-                double zoom = Math.pow(ZOOM_PER_WHEEL_UNIT, -e.getWheelRotation());
+                double zoom = Math.pow(ZOOM_PER_WHEEL_UNIT, e.getWheelRotation());
                 calculator.zoom(zoom, e.getX(), e.getY());
                 repaint();
             }
