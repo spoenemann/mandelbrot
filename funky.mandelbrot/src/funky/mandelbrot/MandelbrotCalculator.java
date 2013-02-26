@@ -164,7 +164,7 @@ public class MandelbrotCalculator {
         valueBuffer = newBuffer;
         
         // trigger a recalculation
-        recalculate(newBuffer, true);
+        recalculate(newBuffer, new Rectangle(newWidth, newHeight), true);
     }
     
     /**
@@ -222,7 +222,7 @@ public class MandelbrotCalculator {
         secondaryValueBuffer = oldBuffer;
 
         // trigger a recalculation
-        recalculate(newBuffer, true);
+        recalculate(newBuffer, new Rectangle(pixelWidth, pixelHeight), true);
     }
     
     /**
@@ -271,7 +271,7 @@ public class MandelbrotCalculator {
         secondaryValueBuffer = oldBuffer;
 
         // trigger a recalculation
-        recalculate(newBuffer, false);
+        recalculate(newBuffer, new Rectangle(pixelWidth, pixelHeight), factor > 1);
     }
     
     /**
@@ -307,11 +307,12 @@ public class MandelbrotCalculator {
      * Perform a recalculation using a worker thread.
      * 
      * @param buffer the buffer to use for calculation
+     * @param area the area that shall be computed
      * @param onlyBlanks if true, only buffer values that are zero are recalculated,
      *      otherwise all values are recalculated
      */
-    private void recalculate(int[][] buffer, boolean onlyBlanks) {
-        CalculationWorker pointCalculator = new CalculationWorker(buffer, onlyBlanks);
+    private void recalculate(int[][] buffer, Rectangle area, boolean onlyBlanks) {
+        CalculationWorker pointCalculator = new CalculationWorker(buffer, area, onlyBlanks);
         synchronized (runningCalculators) {
             runningCalculators.add(pointCalculator);
         }
@@ -325,6 +326,8 @@ public class MandelbrotCalculator {
         
         /** the buffer into which values are written. */
         private int[][] buffer;
+        /** the area that shall be computed by this worker. */
+        private Rectangle area;
         /** if true, only buffer values that are zero are recalculated,
          *  otherwise all values are recalculated. */
         private boolean onlyBlanks;
@@ -337,11 +340,13 @@ public class MandelbrotCalculator {
          * Create a calculation worker thread.
          * 
          * @param buffer the buffer into which values are written
+         * @param area the area that shall be computed by this worker
          * @param onlyBlanks if true, only buffer values that are zero are recalculated,
          *      otherwise all values are recalculated
          */
-        CalculationWorker(int[][] buffer, boolean onlyBlanks) {
+        CalculationWorker(int[][] buffer, Rectangle area, boolean onlyBlanks) {
             this.buffer = buffer;
+            this.area = area;
             this.onlyBlanks = onlyBlanks;
         }
         
@@ -364,8 +369,8 @@ public class MandelbrotCalculator {
                 
                 int reportStart = 0;
                 long lastReport = System.currentTimeMillis();
-                for (int x = 0; x < buffer.length; x++) {
-                    for (int y = 0; y < buffer[x].length; y++) {
+                for (int x = area.x; x < area.x + area.width; x++) {
+                    for (int y = area.y; y < area.y + area.height; y++) {
                         if (!onlyBlanks || buffer[x][y] == 0) {
                             // calculate the current pixel and store it into the buffer
                             int value = calculate(x, y, iterationLimit, threshold);
@@ -380,8 +385,8 @@ public class MandelbrotCalculator {
                     long currentTime = System.currentTimeMillis();
                     if (currentTime - lastReport >= CALCULATION_REPORT_PERIOD) {
                         // send a report to the viewer component so it can draw a portion of the fractal
-                        Rectangle areaToReport = new Rectangle(reportStart, 0,
-                                x - reportStart + 1, buffer[x].length);
+                        Rectangle areaToReport = new Rectangle(reportStart, area.y,
+                                x - reportStart + 1, area.height);
                         synchronized (listeners) {
                             for (CalculationListener listener : listeners) {
                                 listener.calculated(areaToReport, buffer);
@@ -401,9 +406,9 @@ public class MandelbrotCalculator {
                     }
                 }
                 
-                if (reportStart < buffer.length) {
-                    Rectangle areaToReport = new Rectangle(reportStart, 0,
-                            buffer.length - reportStart, buffer[buffer.length - 1].length);
+                if (reportStart < area.x + area.width) {
+                    Rectangle areaToReport = new Rectangle(reportStart, area.y,
+                            area.x + area.width - reportStart, area.height);
                     synchronized (listeners) {
                         for (CalculationListener listener : listeners) {
                             listener.calculated(areaToReport, buffer);
