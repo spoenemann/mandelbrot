@@ -3,38 +3,40 @@
  */
 package funky.mandelbrot;
 
-import java.awt.Dimension;
-import java.awt.event.WindowAdapter;
-import java.awt.event.WindowEvent;
-
-import javax.swing.JFrame;
+import javafx.application.Application;
+import javafx.scene.Group;
+import javafx.scene.Scene;
+import javafx.scene.canvas.Canvas;
+import javafx.stage.Stage;
 
 /**
  * Main class for starting the Mandelbrot application.
  * 
  * @author msp@informatik.uni-kiel.de
  */
-public class MandelbrotApplication {
+public class MandelbrotApplication extends Application {
+    
+    /** the graphics object used to paint the fractal. */
+    private MandelbrotGraphics graphics;
 
-    /**
-     * Start the application.
-     * 
-     * @param args command line arguments (ignored by this program)
-     */
     public static void main(String[] args) {
-        JFrame frame = new JFrame("Funky Mandelbrot");
-        final MandelbrotCanvas canvas = new MandelbrotCanvas();
-        frame.getContentPane().add(canvas);
-        frame.setSize(new Dimension(600,400));
-        frame.setMinimumSize(new Dimension(300, 200));
-        frame.setLocationRelativeTo(null);
-        frame.setVisible(true);
-        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.addWindowListener(new WindowAdapter() {
-            public void windowClosing(WindowEvent e) {
-                canvas.dispose();
-            }
-        });
+        launch(args);
     }
-
+    
+    @Override
+    public void start(Stage primaryStage) {
+        primaryStage.setTitle("Funky Mandelbrot");
+        Group root = new Group();
+        Canvas canvas = new Canvas(600, 400);
+        graphics = new MandelbrotGraphics(canvas);
+        root.getChildren().add(canvas);
+        primaryStage.setScene(new Scene(root));
+        primaryStage.show();
+    }
+    
+    @Override
+    public void stop() {
+        graphics.dispose();
+    }
+    
 }

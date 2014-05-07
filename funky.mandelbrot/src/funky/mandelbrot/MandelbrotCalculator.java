@@ -12,6 +12,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import javafx.geometry.BoundingBox;
+import javafx.geometry.Bounds;
+
 /**
  * Calculator class that generates data for drawing Mandelbrot fractals.
  * 
@@ -39,7 +42,7 @@ public class MandelbrotCalculator {
          * @param area area of the buffer that is ready to be painted
          * @param buffer buffer that contains calculations results
          */
-        void calculated(Rectangle area, int[][] buffer);
+        void calculated(Bounds area, int[][] buffer);
     }
     
     /** list of calculation listeners. */
@@ -385,7 +388,7 @@ public class MandelbrotCalculator {
                     long currentTime = System.currentTimeMillis();
                     if (currentTime - lastReport >= CALCULATION_REPORT_PERIOD) {
                         // send a report to the viewer component so it can draw a portion of the fractal
-                        Rectangle areaToReport = new Rectangle(reportStart, area.y,
+                        Bounds areaToReport = new BoundingBox(reportStart, area.y,
                                 x - reportStart + 1, area.height);
                         synchronized (listeners) {
                             for (CalculationListener listener : listeners) {
@@ -407,7 +410,7 @@ public class MandelbrotCalculator {
                 }
                 
                 if (reportStart < area.x + area.width) {
-                    Rectangle areaToReport = new Rectangle(reportStart, area.y,
+                    Bounds areaToReport = new BoundingBox(reportStart, area.y,
                             area.x + area.width - reportStart, area.height);
                     synchronized (listeners) {
                         for (CalculationListener listener : listeners) {
