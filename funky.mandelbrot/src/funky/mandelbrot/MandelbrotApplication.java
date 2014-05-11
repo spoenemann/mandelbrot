@@ -4,9 +4,10 @@
 package funky.mandelbrot;
 
 import javafx.application.Application;
-import javafx.scene.Group;
+import javafx.beans.value.ObservableValue;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
+import javafx.scene.layout.StackPane;
 import javafx.stage.Stage;
 
 /**
@@ -26,10 +27,20 @@ public class MandelbrotApplication extends Application {
     @Override
     public void start(Stage primaryStage) {
         primaryStage.setTitle("Funky Mandelbrot");
-        Group root = new Group();
+        StackPane root = new StackPane();
+        
         Canvas canvas = new Canvas(600, 400);
         graphics = new MandelbrotGraphics(canvas);
         root.getChildren().add(canvas);
+        root.widthProperty().addListener(
+            (ObservableValue<? extends Number> observable, Number oldValue, Number newValue) -> {
+                canvas.setWidth(newValue.doubleValue());
+            });
+        root.heightProperty().addListener(
+                (ObservableValue<? extends Number> observable, Number oldValue, Number newValue) -> {
+                    canvas.setHeight(newValue.doubleValue());
+                });
+        
         primaryStage.setScene(new Scene(root));
         primaryStage.show();
     }

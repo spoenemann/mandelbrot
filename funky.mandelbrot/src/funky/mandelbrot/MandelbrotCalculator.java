@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import javafx.geometry.BoundingBox;
 import javafx.geometry.Bounds;
@@ -60,9 +59,9 @@ public class MandelbrotCalculator {
     /** the height of the buffers in pixels. */
     private int pixelHeight;
     /** real part of the complex center point (horizontal). */
-    private double centerRe;
+    private double centerRe = -0.5;
     /** imaginary part of the complex center point (vertical). */
-    private double centerIm;
+    private double centerIm = 0.0;
     /** real part of the size of the viewed area (width). */
     private double widthRe;
     /** imaginary part of the size of the viewed area (height). */
@@ -278,30 +277,12 @@ public class MandelbrotCalculator {
     }
     
     /**
-     * Resume calculations that are waiting for reaction by the viewer component.
-     */
-    public void resumeCalulations() {
-        synchronized (runningCalculators) {
-            for (CalculationWorker pointCalculator : runningCalculators) {
-                synchronized (pointCalculator.forceWait) {
-                    pointCalculator.forceWait.set(false);
-                    pointCalculator.forceWait.notify();                    
-                }
-            }
-        }
-    }
-    
-    /**
      * Abort all running calculations.
      */
     private void abortCalculations() {
         synchronized (runningCalculators) {
             for (CalculationWorker pointCalculator : runningCalculators) {
                 pointCalculator.aborted = true;
-                synchronized (pointCalculator.forceWait) {
-                    pointCalculator.forceWait.set(false);
-                    pointCalculator.forceWait.notify();                    
-                }
             }
         }
     }
@@ -336,8 +317,6 @@ public class MandelbrotCalculator {
         private boolean onlyBlanks;
         /** whether the calculation process shall be aborted. */
         private boolean aborted = false;
-        /** whether the thread shall wait until it is notified by the viewer component. */
-        private AtomicBoolean forceWait = new AtomicBoolean(true);
         
         /**
          * Create a calculation worker thread.
@@ -358,15 +337,6 @@ public class MandelbrotCalculator {
          */
         public void run() {
             try {
-                synchronized (forceWait) {
-                    while (forceWait.get()) {
-                        forceWait.wait();
-                        if (aborted) {
-                            return;
-                        }
-                    }
-                }
-                
                 int iterationLimit = (int) (ITERATION_FACTOR * Math.log(pixelWidth / widthRe));
                 double threshold = DIVERGENCE_THRESHOLD * DIVERGENCE_THRESHOLD;
                 
@@ -395,14 +365,6 @@ public class MandelbrotCalculator {
                                 listener.calculated(areaToReport, buffer);
                             }
                         }
-                        synchronized (forceWait) {
-                            while (forceWait.get()) {
-                                forceWait.wait();
-                                if (aborted) {
-                                    return;
-                                }
-                            }
-                        }
                         
                         reportStart = x + 1;
                         lastReport = currentTime;
@@ -418,8 +380,6 @@ public class MandelbrotCalculator {
                         }
                     }
                 }
-            } catch (InterruptedException exception) {
-                // terminate the thread on interruption (should never happen)
             } finally {
                 synchronized (runningCalculators) {
                     runningCalculators.remove(this);
