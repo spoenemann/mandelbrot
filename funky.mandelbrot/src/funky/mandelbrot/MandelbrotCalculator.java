@@ -11,11 +11,10 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import javafx.geometry.BoundingBox;
-import javafx.geometry.Bounds;
-
 /**
- * Calculator class that generates data for drawing Mandelbrot fractals.
+ * Calculator class that generates data for drawing Mandelbrot fractals. Calculations are
+ * performed asynchronously and are reported to listeners. The calculation results are transformed
+ * to color values
  * 
  * @author msp@informatik.uni-kiel.de
  */
@@ -33,31 +32,61 @@ public class MandelbrotCalculator {
     /**
      * Interface for listeners for reporting finished calculations.
      */
-    public interface CalculationListener {
+    public interface ICalculationListener {
         
         /**
          * The given area of the buffer has been calculated.
          * 
          * @param area area of the buffer that is ready to be painted
          * @param buffer buffer that contains calculations results
+         * @param bufferWidth the total width of one line in the value buffer
          */
-        void calculated(Bounds area, int[][] buffer);
+        void calculated(Rectangle area, int[] buffer, int bufferWidth);
+    }
+    
+    /**
+     * Determine an index into a buffer array using the given buffer width.
+     * 
+     * @param x the x coordinate
+     * @param y the y coordinate
+     * @param pixelWidth the total width of one line in the buffer
+     * @return an index
+     */
+    private static int index(int x, int y, int pixelWidth) {
+        return x + y * pixelWidth;
+    }
+    
+    /**
+     * Determine an index into a buffer array using the default buffer width.
+     * 
+     * @param x the x coordinate
+     * @param y the y coordinate
+     * @return an index
+     */
+    private int index(int x, int y) {
+        return x + y * pixelWidth;
     }
     
     /** list of calculation listeners. */
-    private List<CalculationListener> listeners = new ArrayList<CalculationListener>();
+    private List<ICalculationListener> listeners = new ArrayList<ICalculationListener>();
     /** currently running calculation worker threads. */
     private Set<CalculationWorker> runningCalculators = new HashSet<CalculationWorker>();
     /** executor service for running worker threads. */
     private ExecutorService executorService = Executors.newCachedThreadPool();
+    /** the colorizer used to process calculation results (default is black & white). */
+    private IColorizer colorizer = x -> x > 0 ? 0xffffffff : 0xff000000;
     /** the currently used buffer. */
-    private int[][] valueBuffer = new int[0][0];
+    private int[] valueBuffer = new int[0];
     /** the secondary buffer used for copying values. */
-    private int[][] secondaryValueBuffer;
+    private int[] secondaryValueBuffer;
     /** the width of the buffers in pixels. */
     private int pixelWidth;
     /** the height of the buffers in pixels. */
     private int pixelHeight;
+    /** real part of the complex start value for iterations. */
+    private double startRe = 0.0;
+    /** imaginary part of the complex start value for iterations. */
+    private double startIm = 0.0;
     /** real part of the complex center point (horizontal). */
     private double centerRe = -0.5;
     /** imaginary part of the complex center point (vertical). */
@@ -80,7 +109,7 @@ public class MandelbrotCalculator {
      * 
      * @return the active buffer
      */
-    public int[][] getBuffer() {
+    public int[] getBuffer() {
         return valueBuffer;
     }
     
@@ -89,7 +118,7 @@ public class MandelbrotCalculator {
      * 
      * @param listener the listener to add
      */
-    public void addListener(CalculationListener listener) {
+    public void addListener(ICalculationListener listener) {
         synchronized (listeners) {
             listeners.add(listener);
         }
@@ -100,10 +129,31 @@ public class MandelbrotCalculator {
      * 
      * @param listener the listener to remove
      */
-    public void removeListener(CalculationListener listener) {
+    public void removeListener(ICalculationListener listener) {
         synchronized (listeners) {
             listeners.remove(listener);
         }
+    }
+    
+    /**
+     * Set the colorizer for processing calculation results.
+     * 
+     * @param colorizer a colorizer implementation
+     */
+    public void setColorizer(IColorizer colorizer) {
+        this.colorizer = colorizer;
+    }
+    
+    /**
+     * Set the complex start value for iterations. The start value determines the first element
+     * of the computed sequence of complex numbers.
+     * 
+     * @param startRe real part of the start value
+     * @param startIm imaginary part of the start value
+     */
+    public void setStart(double startRe, double startIm) {
+        this.startRe = startRe;
+        this.startIm = startIm;
     }
     
     /**
@@ -112,7 +162,7 @@ public class MandelbrotCalculator {
      * @param newWidth new width of the viewed area, in pixels
      * @param newHeight new height of the viewed area, in pixels
      */
-    public void resize(final int newWidth, final int newHeight) {
+    public void resize(int newWidth, int newHeight) {
         assert newWidth >= 0 && newHeight >= 0;
         int oldWidth = this.pixelWidth;
         int oldHeight = this.pixelHeight;
@@ -121,8 +171,8 @@ public class MandelbrotCalculator {
         }
         abortCalculations();
         
-        int[][] oldBuffer = valueBuffer;
-        int[][] newBuffer = new int[newWidth][newHeight];
+        int[] oldBuffer = valueBuffer;
+        int[] newBuffer = new int[newWidth * newHeight];
         
         // prepare values for copying the content that is still visible after resizing
         int copyWidth = Math.min(oldWidth, newWidth);
@@ -145,7 +195,8 @@ public class MandelbrotCalculator {
         // copy content from the old to the new buffer
         for (int x = 0; x < copyWidth; x++) {
             for (int y = 0; y < copyHeight; y++) {
-                newBuffer[newxStart + x][newyStart + y] = oldBuffer[oldxStart + x][oldyStart + y];
+                newBuffer[index(newxStart + x, newyStart + y, newWidth)]
+                        = oldBuffer[index(oldxStart + x, oldyStart + y, oldWidth)];
             }
         }
 
@@ -166,7 +217,7 @@ public class MandelbrotCalculator {
         valueBuffer = newBuffer;
         
         // trigger a recalculation
-        recalculate(newBuffer, new Rectangle(newWidth, newHeight), true);
+        recalculate(new Rectangle(newWidth, newHeight), true);
     }
     
     /**
@@ -181,10 +232,10 @@ public class MandelbrotCalculator {
         }
         abortCalculations();
         
-        int[][] oldBuffer = valueBuffer;
-        int[][] newBuffer = secondaryValueBuffer;
+        int[] oldBuffer = valueBuffer;
+        int[] newBuffer = secondaryValueBuffer;
         if (newBuffer == null) {
-            newBuffer = new int[pixelWidth][pixelHeight];
+            newBuffer = new int[pixelWidth * pixelHeight];
         }
         
         // prepare values for copying the content that is still visible after translation
@@ -210,9 +261,10 @@ public class MandelbrotCalculator {
             for (int y = 0; y < pixelHeight; y++) {
                 if (x >= newxStart && x < newxStart + copyWidth
                         && y >= newyStart && y < newyStart + copyHeight) {
-                    newBuffer[x][y] = oldBuffer[oldxStart + x - newxStart][oldyStart + y - newyStart];
+                    newBuffer[index(x, y)] = oldBuffer[index(oldxStart + x - newxStart,
+                            oldyStart + y - newyStart)];
                 } else {
-                    newBuffer[x][y] = 0;
+                    newBuffer[index(x, y)] = 0xffffffff;
                 }
             }
         }
@@ -224,7 +276,74 @@ public class MandelbrotCalculator {
         secondaryValueBuffer = oldBuffer;
 
         // trigger a recalculation
-        recalculate(newBuffer, new Rectangle(pixelWidth, pixelHeight), true);
+        recalculate(new Rectangle(pixelWidth, pixelHeight), true);
+    }
+    
+    /**
+     * Determine a smooth color from double precision coordinates.
+     * 
+     * @param x the x coordinate
+     * @param y the y coordinate
+     * @return a smooth color
+     */
+    private int smoothColor(double x, double y) {
+        double r = 0;
+        double g = 0;
+        double b = 0;
+        int lox = (int) Math.floor(x);
+        int hix = (int) Math.ceil(x);
+        int loy = (int) Math.floor(y);
+        int hiy = (int) Math.ceil(y);
+        int contribs = 0;
+        if (lox >= 0 && lox < pixelWidth) {
+            double xfactor = 1 + lox - x;
+            if (loy >= 0 && loy < pixelHeight) {
+                double factor = xfactor * (1 + loy - y);
+                int value = valueBuffer[index(lox, loy)];
+                r += factor * ((value >> 16) & 0xff);
+                g += factor * ((value >> 8) & 0xff);
+                b += factor * (value & 0xff);
+                contribs++;
+            }
+            if (hiy != loy && hiy >= 0 && hiy < pixelHeight) {
+                double factor = xfactor * (y - loy);
+                int value = valueBuffer[index(lox, hiy)];
+                r += factor * ((value >> 16) & 0xff);
+                g += factor * ((value >> 8) & 0xff);
+                b += factor * (value & 0xff);
+                contribs++;
+            }
+        }
+        if (hix != lox && hix >= 0 && hix < pixelWidth) {
+            double xfactor = x - lox;
+            if (loy >= 0 && loy < pixelHeight) {
+                double factor = xfactor * (1 + loy - y);
+                int value = valueBuffer[index(hix, loy)];
+                r += factor * ((value >> 16) & 0xff);
+                g += factor * ((value >> 8) & 0xff);
+                b += factor * (value & 0xff);
+                contribs++;
+            }
+            if (hiy != loy && hiy >= 0 && hiy < pixelHeight) {
+                double factor = xfactor * (y - loy);
+                int value = valueBuffer[index(hix, hiy)];
+                r += factor * ((value >> 16) & 0xff);
+                g += factor * ((value >> 8) & 0xff);
+                b += factor * (value & 0xff);
+                contribs++;
+            }
+        }
+        if (contribs == 0) {
+            return 0xffffffff;
+        }
+        int required = (hix - lox + 1) * (hiy - loy + 1);
+        if (contribs < required) {
+            double factor = required / contribs;
+            r *= factor;
+            g *= factor;
+            b *= factor;
+        }
+        return 0xff000000 | ((int) r << 16) | ((int) g << 8) | (int) b;
     }
     
     /**
@@ -242,22 +361,18 @@ public class MandelbrotCalculator {
         }
         abortCalculations();
         
-        int[][] oldBuffer = valueBuffer;
-        int[][] newBuffer = secondaryValueBuffer;
+        int[] oldBuffer = valueBuffer;
+        int[] newBuffer = secondaryValueBuffer;
         if (newBuffer == null) {
-            newBuffer = new int[pixelWidth][pixelHeight];
+            newBuffer = new int[pixelWidth * pixelHeight];
         }
 
         // scale the view according to the zoom factor
         for (int x = 0; x < pixelWidth; x++) {
             for (int y = 0; y < pixelHeight; y++) {
-                int sourcex = (int) Math.round(focusx + factor * (x - focusx));
-                int sourcey = (int) Math.round(focusy + factor * (y - focusy));
-                if (sourcex >= 0 && sourcex < pixelWidth && sourcey >= 0 && sourcey < pixelHeight) {
-                    newBuffer[x][y] = oldBuffer[sourcex][sourcey];
-                } else {
-                    newBuffer[x][y] = 0;
-                }
+                double sourcex = focusx + factor * (x - focusx);
+                double sourcey = focusy + factor * (y - focusy);
+                newBuffer[index(x, y)] = smoothColor(sourcex, sourcey);
             }
         }
 
@@ -273,7 +388,7 @@ public class MandelbrotCalculator {
         secondaryValueBuffer = oldBuffer;
 
         // trigger a recalculation
-        recalculate(newBuffer, new Rectangle(pixelWidth, pixelHeight), factor > 1);
+        recalculate(new Rectangle(pixelWidth, pixelHeight), false);
     }
     
     /**
@@ -295,8 +410,9 @@ public class MandelbrotCalculator {
      * @param onlyBlanks if true, only buffer values that are zero are recalculated,
      *      otherwise all values are recalculated
      */
-    private void recalculate(int[][] buffer, Rectangle area, boolean onlyBlanks) {
-        CalculationWorker pointCalculator = new CalculationWorker(buffer, area, onlyBlanks);
+    private void recalculate(Rectangle area, boolean onlyBlanks) {
+        CalculationWorker pointCalculator = new CalculationWorker(valueBuffer, pixelWidth,
+                area, onlyBlanks);
         synchronized (runningCalculators) {
             runningCalculators.add(pointCalculator);
         }
@@ -309,7 +425,9 @@ public class MandelbrotCalculator {
     private class CalculationWorker implements Runnable {
         
         /** the buffer into which values are written. */
-        private int[][] buffer;
+        private int[] buffer;
+        /** the total width of one line in the value buffer. */
+        private int bufferWidth;
         /** the area that shall be computed by this worker. */
         private Rectangle area;
         /** if true, only buffer values that are zero are recalculated,
@@ -322,12 +440,14 @@ public class MandelbrotCalculator {
          * Create a calculation worker thread.
          * 
          * @param buffer the buffer into which values are written
+         * @param bufferWidth the total width of one line in the value buffer
          * @param area the area that shall be computed by this worker
          * @param onlyBlanks if true, only buffer values that are zero are recalculated,
          *      otherwise all values are recalculated
          */
-        CalculationWorker(int[][] buffer, Rectangle area, boolean onlyBlanks) {
+        CalculationWorker(int[] buffer, int bufferWidth, Rectangle area, boolean onlyBlanks) {
             this.buffer = buffer;
+            this.bufferWidth = bufferWidth;
             this.area = area;
             this.onlyBlanks = onlyBlanks;
         }
@@ -344,10 +464,13 @@ public class MandelbrotCalculator {
                 long lastReport = System.currentTimeMillis();
                 for (int x = area.x; x < area.x + area.width; x++) {
                     for (int y = area.y; y < area.y + area.height; y++) {
-                        if (!onlyBlanks || buffer[x][y] == 0) {
+                        int index = index(x, y, bufferWidth);
+                        if (!onlyBlanks || (buffer[index] & 0xffffff) == 0
+                                || (buffer[index] & 0xffffff) == 0xffffff) {
+                            
                             // calculate the current pixel and store it into the buffer
-                            int value = calculate(x, y, iterationLimit, threshold);
-                            buffer[x][y] = value;
+                            double value = calculate(x, y, iterationLimit, threshold);
+                            buffer[index] = colorizer.color(value);
                         }
                         
                         if (aborted) {
@@ -358,11 +481,11 @@ public class MandelbrotCalculator {
                     long currentTime = System.currentTimeMillis();
                     if (currentTime - lastReport >= CALCULATION_REPORT_PERIOD) {
                         // send a report to the viewer component so it can draw a portion of the fractal
-                        Bounds areaToReport = new BoundingBox(reportStart, area.y,
+                        Rectangle areaToReport = new Rectangle(reportStart, area.y,
                                 x - reportStart + 1, area.height);
                         synchronized (listeners) {
-                            for (CalculationListener listener : listeners) {
-                                listener.calculated(areaToReport, buffer);
+                            for (ICalculationListener listener : listeners) {
+                                listener.calculated(areaToReport, buffer, bufferWidth);
                             }
                         }
                         
@@ -372,11 +495,11 @@ public class MandelbrotCalculator {
                 }
                 
                 if (reportStart < area.x + area.width) {
-                    Bounds areaToReport = new BoundingBox(reportStart, area.y,
+                    Rectangle areaToReport = new Rectangle(reportStart, area.y,
                             area.x + area.width - reportStart, area.height);
                     synchronized (listeners) {
-                        for (CalculationListener listener : listeners) {
-                            listener.calculated(areaToReport, buffer);
+                        for (ICalculationListener listener : listeners) {
+                            listener.calculated(areaToReport, buffer, bufferWidth);
                         }
                     }
                 }
@@ -397,14 +520,14 @@ public class MandelbrotCalculator {
          * @return the number of iterations after which the value exceeds the given threshold,
          *      or the negative iteration limit if the threshold was not reached
          */
-        private int calculate(int x, int y, int iterationLimit, double threshold) {
+        private double calculate(int x, int y, int iterationLimit, double threshold) {
             double cre = centerRe + ((double) x / pixelWidth - 0.5) * widthRe;
             double cim = centerIm + ((double) y / pixelHeight - 0.5) * heightIm;
             
             double absolute;
             int i = 0;
-            double re = 0;
-            double im = 0;
+            double re = startRe;
+            double im = startIm;
             do {
                 double nextre = re * re - im * im + cre;
                 double nextim = 2 * re * im + cim;
@@ -418,10 +541,10 @@ public class MandelbrotCalculator {
                 return 0;
             } else if (i < iterationLimit) {
                 // the value is diverging
-                return i;
+                return i + threshold / absolute;
             } else {
                 // the value is not diverging
-                return -i;
+                return -absolute / threshold;
             }
         }
     }

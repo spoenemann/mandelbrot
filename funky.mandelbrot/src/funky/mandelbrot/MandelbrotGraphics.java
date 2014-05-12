@@ -3,6 +3,8 @@
  */
 package funky.mandelbrot;
 
+import java.awt.Rectangle;
+
 import javafx.application.Platform;
 import javafx.beans.value.ChangeListener;
 import javafx.beans.value.ObservableValue;
@@ -29,6 +31,23 @@ public class MandelbrotGraphics {
     private static final int NON_DIVERGE_COLOR = rgb(96, 32, 32);
     /** the number of iterations after which the color gradient repeats. */
     private static final int COLOR_PERIOD = 64;
+    /** the default colorizer. */
+    private static final IColorizer DEFAULT_COLORIZER = x -> {
+        if (x < 0) {
+            // the pixel belongs to the non-diverging set
+            return NON_DIVERGE_COLOR;
+        } else {
+            // the pixel belongs to the diverging set
+            double remainder = (int) x % COLOR_PERIOD + x - Math.floor(x);
+            int shade;
+            if (remainder < COLOR_PERIOD / 2) {
+                shade = (int) (256 * remainder / (COLOR_PERIOD / 2));
+            } else {
+                shade = (int) (256 * (COLOR_PERIOD - remainder - 1) / (COLOR_PERIOD / 2));
+            }
+            return rgb(shade, shade, 224);
+        }
+    };
     
     /**
      * Convert the specified color into the ARGB format.
@@ -39,7 +58,10 @@ public class MandelbrotGraphics {
      * @return the corresponding ARGB value
      */
     private static int rgb(int r, int g, int b) {
-        return 0xff000000 + (r << 16) + (g << 8) + b;
+        if (r > 0xff || g > 0xff || b > 0xff) {
+            throw new IllegalArgumentException("r = " + r + ", g = " + g + ", b = " + b);
+        }
+        return 0xff000000 | (r << 16) | (g << 8) | b;
     }
     
     /** the canvas on which we draw the fractal. */
@@ -63,20 +85,20 @@ public class MandelbrotGraphics {
                 } else if (event.getEventType().equals(MouseEvent.MOUSE_DRAGGED)) {
                     calculator.translate((int) (event.getX() - lastMouseLocation.getX()),
                             (int) (event.getY() - lastMouseLocation.getY()));
-                    repaint(canvas.getBoundsInLocal(), calculator.getBuffer());
+                    repaint();
                     lastMouseLocation = new Point2D((float) event.getX(), (float) event.getY());
                 }
             });
         canvas.addEventHandler(ZoomEvent.ZOOM,
             (ZoomEvent event) -> {
                 calculator.zoom(1 / event.getZoomFactor(), (int) event.getX(), (int) event.getY());
-                repaint(canvas.getBoundsInLocal(), calculator.getBuffer());
+                repaint();
             });
         canvas.addEventHandler(ScrollEvent.SCROLL,
             (ScrollEvent event) -> {
                 double zoom = Math.pow(ZOOM_PER_WHEEL_UNIT, -event.getDeltaY());
                 calculator.zoom(zoom, (int) event.getX(), (int) event.getY());
-                repaint(canvas.getBoundsInLocal(), calculator.getBuffer());
+                repaint();
             });
         ChangeListener<Number> sizeListener =
             (ObservableValue<? extends Number> observable, Number oldValue, Number newValue) -> {
@@ -88,6 +110,7 @@ public class MandelbrotGraphics {
         // create the calculator class
         calculator = new MandelbrotCalculator();
         calculator.addListener(this::repaint);
+        calculator.setColorizer(DEFAULT_COLORIZER);
         calculator.resize((int) canvas.getWidth(), (int) canvas.getHeight());
     }
     
@@ -98,53 +121,29 @@ public class MandelbrotGraphics {
         calculator.shutdown();
     }
     
-    /** buffer used to draw colored pixels on the canvas. */
-    private int[] argbBuffer = new int[0];
+    /**
+     * Repaint the whole canvas using the current calculator buffer.
+     */
+    private void repaint() {
+        Bounds bounds = canvas.getBoundsInLocal();
+        repaint(new Rectangle((int) bounds.getMinX(), (int) bounds.getMinY(), (int) bounds.getWidth(),
+                (int) bounds.getHeight()), calculator.getBuffer(), (int) bounds.getWidth());
+    }
     
     /**
      * Repaint the given area using data from the given buffer.
      * 
      * @param area the area to repaint
      * @param valueBuffer the buffer from which fractal data are taken
+     * @param bufferWidth the total width of a row in the value buffer
      */
-    public void repaint(Bounds area, int[][] valueBuffer) {
+    public void repaint(Rectangle area, int[] valueBuffer, int bufferWidth) {
         Platform.runLater(new Runnable() {
             public void run() {
-                int minx = (int) area.getMinX();
-                int miny = (int) area.getMinY();
-                int width = (int) area.getWidth();
-                int height = (int) area.getHeight();
-
-                // make sure the buffer is large enough
-                if (argbBuffer.length < width * height) {
-                    argbBuffer = new int[width * height];
-                }
-                
-                for (int x = minx; x < minx + width; x++) {
-                    for (int y = miny; y < miny + height; y++) {
-                        if (x < valueBuffer.length && y < valueBuffer[x].length) {
-                            int index = x - minx + width * (y - miny);
-                            int value = valueBuffer[x][y];
-                            if (value < 0) {
-                                // the pixel belongs to the non-diverging set
-                                argbBuffer[index] = NON_DIVERGE_COLOR;
-                            } else {
-                                // the pixel belongs to the diverging set
-                                int remainder = value % COLOR_PERIOD;
-                                int shade;
-                                if (remainder < COLOR_PERIOD / 2) {
-                                    shade = 256 * remainder / (COLOR_PERIOD / 2);
-                                } else {
-                                    shade = 256 * (COLOR_PERIOD - remainder - 1) / (COLOR_PERIOD / 2);
-                                }
-                                argbBuffer[index] = rgb(shade, shade, 224);
-                            }
-                        }
-                    }
-                }
                 PixelWriter writer = canvas.getGraphicsContext2D().getPixelWriter();
-                writer.setPixels(minx, miny, width, height, PixelFormat.getIntArgbInstance(),
-                        argbBuffer, 0, width);
+                int offset = area.x + area.y * bufferWidth;
+                writer.setPixels(area.x, area.y, area.width, area.height,
+                        PixelFormat.getIntArgbInstance(), valueBuffer, offset, bufferWidth);
             }
         });
     }
