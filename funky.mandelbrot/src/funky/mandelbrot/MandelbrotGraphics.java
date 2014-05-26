@@ -58,7 +58,7 @@ public class MandelbrotGraphics {
      * @return the corresponding ARGB value
      */
     private static int rgb(int r, int g, int b) {
-        if (r > 0xff || g > 0xff || b > 0xff) {
+        if (r > 0xff || g > 0xff || b > 0xff || r < 0 || g < 0 || b < 0) {
             throw new IllegalArgumentException("r = " + r + ", g = " + g + ", b = " + b);
         }
         return 0xff000000 | (r << 16) | (g << 8) | b;
@@ -66,10 +66,8 @@ public class MandelbrotGraphics {
     
     /** the canvas on which we draw the fractal. */
     private final Canvas canvas;
-    /** the calculator class that performs all arithmetic stuff. */
-    private final MandelbrotCalculator calculator;
-    /** the last point where the mouse was found while dragging. */
-    private Point2D lastMouseLocation = new Point2D(0, 0);
+    /** the buffer manager that controls all computations. */
+    private final BufferManager bufferManager;
 
     /**
      * Create a Mandelbrot canvas.
@@ -77,13 +75,27 @@ public class MandelbrotGraphics {
     public MandelbrotGraphics(Canvas canvas) {
         this.canvas = canvas;
         
-        // register event handlers
+        bufferManager = new BufferManager();
+        bufferManager.addListener(this::repaint);
+        bufferManager.setColorizer(DEFAULT_COLORIZER);
+        bufferManager.resize((int) canvas.getWidth(), (int) canvas.getHeight());
+        
+        addEventHandlers();
+    }
+    
+    /** the last point where the mouse was found while dragging. */
+    private Point2D lastMouseLocation = new Point2D(0, 0);
+    
+    /**
+     * Add handlers to mouse events and resize events on the canvas.
+     */
+    private void addEventHandlers() {
         canvas.addEventHandler(MouseEvent.ANY,
             (MouseEvent event) -> {
                 if (event.getEventType().equals(MouseEvent.MOUSE_PRESSED)) {
                     lastMouseLocation = new Point2D((float) event.getX(), (float) event.getY());
                 } else if (event.getEventType().equals(MouseEvent.MOUSE_DRAGGED)) {
-                    calculator.translate((int) (event.getX() - lastMouseLocation.getX()),
+                    bufferManager.translate((int) (event.getX() - lastMouseLocation.getX()),
                             (int) (event.getY() - lastMouseLocation.getY()));
                     repaint();
                     lastMouseLocation = new Point2D((float) event.getX(), (float) event.getY());
@@ -91,34 +103,28 @@ public class MandelbrotGraphics {
             });
         canvas.addEventHandler(ZoomEvent.ZOOM,
             (ZoomEvent event) -> {
-                calculator.zoom(1 / event.getZoomFactor(), (int) event.getX(), (int) event.getY());
+                bufferManager.zoom(1 / event.getZoomFactor(), (int) event.getX(), (int) event.getY());
                 repaint();
             });
         canvas.addEventHandler(ScrollEvent.SCROLL,
             (ScrollEvent event) -> {
                 double zoom = Math.pow(ZOOM_PER_WHEEL_UNIT, -event.getDeltaY());
-                calculator.zoom(zoom, (int) event.getX(), (int) event.getY());
+                bufferManager.zoom(zoom, (int) event.getX(), (int) event.getY());
                 repaint();
             });
         ChangeListener<Number> sizeListener =
             (ObservableValue<? extends Number> observable, Number oldValue, Number newValue) -> {
-                calculator.resize((int) canvas.getWidth(), (int) canvas.getHeight());
+                bufferManager.resize((int) canvas.getWidth(), (int) canvas.getHeight());
             };
         canvas.widthProperty().addListener(sizeListener);
         canvas.heightProperty().addListener(sizeListener);
-        
-        // create the calculator class
-        calculator = new MandelbrotCalculator();
-        calculator.addListener(this::repaint);
-        calculator.setColorizer(DEFAULT_COLORIZER);
-        calculator.resize((int) canvas.getWidth(), (int) canvas.getHeight());
     }
     
     /**
      * Release any additional resources that are held by this canvas.
      */
     public void dispose() {
-        calculator.shutdown();
+        bufferManager.shutdown();
     }
     
     /**
@@ -127,7 +133,7 @@ public class MandelbrotGraphics {
     private void repaint() {
         Bounds bounds = canvas.getBoundsInLocal();
         repaint(new Rectangle((int) bounds.getMinX(), (int) bounds.getMinY(), (int) bounds.getWidth(),
-                (int) bounds.getHeight()), calculator.getBuffer(), (int) bounds.getWidth());
+                (int) bounds.getHeight()), bufferManager.getBuffer(), (int) bounds.getWidth());
     }
     
     /**

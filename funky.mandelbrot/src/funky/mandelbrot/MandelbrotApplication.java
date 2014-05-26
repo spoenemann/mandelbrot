@@ -37,9 +37,9 @@ public class MandelbrotApplication extends Application {
                 canvas.setWidth(newValue.doubleValue());
             });
         root.heightProperty().addListener(
-                (ObservableValue<? extends Number> observable, Number oldValue, Number newValue) -> {
-                    canvas.setHeight(newValue.doubleValue());
-                });
+            (ObservableValue<? extends Number> observable, Number oldValue, Number newValue) -> {
+                canvas.setHeight(newValue.doubleValue());
+            });
         
         primaryStage.setScene(new Scene(root));
         primaryStage.show();
