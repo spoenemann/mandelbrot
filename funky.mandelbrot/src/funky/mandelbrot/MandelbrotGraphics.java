@@ -41,9 +41,9 @@ public class MandelbrotGraphics {
             double remainder = (int) x % COLOR_PERIOD + x - Math.floor(x);
             int shade;
             if (remainder < COLOR_PERIOD / 2) {
-                shade = (int) (256 * remainder / (COLOR_PERIOD / 2));
+                shade = (int) Math.round(255 * remainder / (COLOR_PERIOD / 2));
             } else {
-                shade = (int) (256 * (COLOR_PERIOD - remainder - 1) / (COLOR_PERIOD / 2));
+                shade = (int) Math.round(255 * (COLOR_PERIOD - remainder) / (COLOR_PERIOD / 2));
             }
             return rgb(shade, shade, 224);
         }

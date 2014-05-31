@@ -7,8 +7,6 @@ import java.awt.Rectangle;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import funky.mandelbrot.MandelbrotCalculator.ICalculationListener;
-
 /**
  * The buffer manager computes immediate reactions to navigation in the complex area and delegates
  * further calculations to the {@link MandelbrotCalculator}.
@@ -20,7 +18,7 @@ public class BufferManager {
     /** initial width of the viewed fractal. */
     private static final double START_WIDTH = 4.0;
     /** number of calculation worker threads. */
-    private static final int WORKER_THREADS = 2;
+    private static final int WORKER_THREADS = 3;
     
     /**
      * Determine an index into a buffer array using the given buffer width.

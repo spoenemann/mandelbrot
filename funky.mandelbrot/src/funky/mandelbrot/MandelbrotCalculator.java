@@ -17,21 +17,6 @@ import java.util.HashSet;
 public class MandelbrotCalculator implements Runnable {
     
     /**
-     * Interface for listeners for reporting finished calculations.
-     */
-    public interface ICalculationListener {
-        
-        /**
-         * The given area of the buffer has been calculated.
-         * 
-         * @param area area of the buffer that is ready to be painted
-         * @param buffer buffer that contains calculations results
-         * @param bufferWidth the total width of one line in the value buffer
-         */
-        void calculated(Rectangle area, int[] buffer, int bufferWidth);
-    }
-    
-    /**
      * The context data are shared among all instances of the calculator class.
      */
     public static class Context {
@@ -60,9 +45,9 @@ public class MandelbrotCalculator implements Runnable {
     /** threshold for the absolute value beyond which diversion is detected. */
     private static final double DIVERGENCE_THRESHOLD = 2.0;
     /** minimal time in milliseconds between reports. */
-    private static final long CALCULATION_REPORT_PERIOD = 40;
+    private static final long CALCULATION_REPORT_PERIOD = 100;
     /** initial sleep time before worker threads start their work. */
-    private static final long INITIAL_SLEEP_TIME = 40;
+    private static final long INITIAL_SLEEP_TIME = 150;
     
     /** the context data used for calculations. */
     private final Context context;
@@ -125,8 +110,7 @@ public class MandelbrotCalculator implements Runnable {
             for (int y = area.y; y < area.y + area.height; y++) {
                 for (int x = area.x; x < area.x + area.width; x++) {
                     int index = BufferManager.index(x, y, bufferWidth);
-                    if (!onlyBlanks || (buffer[index] & 0xffffff) == 0
-                            || (buffer[index] & 0xffffff) == 0xffffff) {
+                    if (!onlyBlanks || isBlank(buffer[index])) {
                         
                         // calculate the current pixel and store it into the buffer
                         double value = calculate(x, y, iterationLimit);
@@ -161,11 +145,24 @@ public class MandelbrotCalculator implements Runnable {
             }
         } catch (InterruptedException exception) {
             // terminate the worker thread
+        } catch (RuntimeException exception) {
+            exception.printStackTrace();
         } finally {
             synchronized (context.runningCalculators) {
                 context.runningCalculators.remove(this);
             }
         }
+    }
+    
+    /**
+     * Determine whether the given pixel value is blank, that is it has probably not been
+     * assigned a color yet.
+     * 
+     * @param value a pixel value
+     * @return true if the value is interpreted as blank
+     */
+    private boolean isBlank(int value) {
+        return (value & 0xffffff) == 0 || (value & 0xffffff) == 0xffffff;
     }
     
     private final double threshold = DIVERGENCE_THRESHOLD * DIVERGENCE_THRESHOLD;
