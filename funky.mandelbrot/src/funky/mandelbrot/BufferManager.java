@@ -117,6 +117,16 @@ public class BufferManager {
     }
     
     /**
+     * Enable or disable oversampling of pixels. If oversampling is enabled, computations are
+     * significantly slower, but the resulting images are prettier.
+     * 
+     * @param useOversampling whether oversampling is used for computing pixel colors
+     */
+    public void setOversampling(boolean useOversampling) {
+        context.useOversampling = useOversampling;
+    }
+    
+    /**
      * Change the size of the viewed area and update buffers.
      * 
      * @param newWidth new width of the viewed area, in pixels
@@ -380,7 +390,7 @@ public class BufferManager {
                 }
                 MandelbrotCalculator calculator = new MandelbrotCalculator(context, valueBuffer,
                         pixelWidth, pixelHeight, new Rectangle(x, area.y, width, area.height),
-                        onlyBlanks);
+                        onlyBlanks, true);
                 x += width;
                 context.runningCalculators.add(calculator);
                 executorService.submit(calculator);

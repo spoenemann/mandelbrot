@@ -16,6 +16,9 @@ import java.util.HashSet;
  */
 public class MandelbrotCalculator implements Runnable {
     
+    /** factor for oversampling the created images. */
+    private static final int OVERSAMPLING = 4;
+    
     /**
      * The context data are shared among all instances of the calculator class.
      */
@@ -38,6 +41,8 @@ public class MandelbrotCalculator implements Runnable {
         double widthRe;
         /** imaginary part of the size of the viewed area (height). */
         double heightIm;
+        /** controls whether oversampling is used for computing pixel colors. */
+        boolean useOversampling;
     }
     
     /** factor for the computed limit on the number of iterations. */
@@ -77,7 +82,7 @@ public class MandelbrotCalculator implements Runnable {
      *      otherwise all values are recalculated
      */
     public MandelbrotCalculator(Context context, int[] buffer, int bufferWidth, int bufferHeight,
-            Rectangle area, boolean onlyBlanks) {
+            Rectangle area, boolean onlyBlanks, boolean useOversampling) {
         this.context = context;
         this.buffer = buffer;
         this.bufferWidth = bufferWidth;
@@ -103,6 +108,7 @@ public class MandelbrotCalculator implements Runnable {
                 return;
             }
             
+            // the number of iterations is limited dynamically depending on the zoom factor
             int iterationLimit = (int) (ITERATION_FACTOR * Math.log(bufferWidth / context.widthRe));
             
             int reportStart = area.y;
@@ -113,8 +119,7 @@ public class MandelbrotCalculator implements Runnable {
                     if (!onlyBlanks || isBlank(buffer[index])) {
                         
                         // calculate the current pixel and store it into the buffer
-                        double value = calculate(x, y, iterationLimit);
-                        buffer[index] = context.colorizer.color(value);
+                        buffer[index] = calculateColor(x, y, iterationLimit);
                     }
                     
                     if (aborted) {
@@ -165,10 +170,47 @@ public class MandelbrotCalculator implements Runnable {
         return (value & 0xffffff) == 0 || (value & 0xffffff) == 0xffffff;
     }
     
-    private final double threshold = DIVERGENCE_THRESHOLD * DIVERGENCE_THRESHOLD;
+    private static final double OVERSMP_INCR = 1.0 / OVERSAMPLING;
+    private static final double OVERSMP_START = -0.5 + OVERSMP_INCR / 2;
+    private static final int OVERSMP_SQR = OVERSAMPLING * OVERSAMPLING;
+    
+    /**
+     * Calculate the color of the pixel with given coordinates.
+     * 
+     * @param x horizontal coordinate in the viewed area
+     * @param y vertical coordinate in the viewed area
+     * @param iterationLimit limit on the number of iterations
+     * @return color result to be stored in a buffer
+     */
+    private int calculateColor(int x, int y, int iterationLimit) {
+        if (context.useOversampling) {
+            int rs = 0;
+            int gs = 0;
+            int bs = 0;
+            double ox = x + OVERSMP_START;
+            for (int i = 0; i < OVERSAMPLING; i++) {
+                double oy = y + OVERSMP_START;
+                for (int j = 0; j < OVERSAMPLING; j++) {
+                    double value = calculateValue(ox, oy, iterationLimit);
+                    int color = context.colorizer.color(value);
+                    rs += (color >> 16) & 0xff;
+                    gs += (color >> 8) & 0xff;
+                    bs += color & 0xff;
+                    oy += OVERSMP_INCR;
+                }
+                ox += OVERSMP_INCR;
+            }
+            return 0xff000000 | (rs / OVERSMP_SQR << 16) | (gs / OVERSMP_SQR << 8) | (bs / OVERSMP_SQR);
+        } else {
+            double value = calculateValue(x, y, iterationLimit);
+            return context.colorizer.color(value);
+        }
+    }
+    
+    private static final double THRESHOLD_SQR = DIVERGENCE_THRESHOLD * DIVERGENCE_THRESHOLD;
 
     /**
-     * Calculate the given pixel.
+     * Calculate a value at the complex position that corresponds to the given pixel coordinates.
      * 
      * @param x horizontal coordinate in the viewed area
      * @param y vertical coordinate in the viewed area
@@ -176,9 +218,9 @@ public class MandelbrotCalculator implements Runnable {
      * @return the number of iterations after which the value exceeds the given threshold,
      *      or the negative iteration limit if the threshold was not reached
      */
-    private double calculate(int x, int y, int iterationLimit) {
-        double cre = context.centerRe + ((double) x / bufferWidth - 0.5) * context.widthRe;
-        double cim = context.centerIm + ((double) y / bufferHeight - 0.5) * context.heightIm;
+    private double calculateValue(double x, double y, int iterationLimit) {
+        double cre = context.centerRe + (x / bufferWidth - 0.5) * context.widthRe;
+        double cim = context.centerIm + (y / bufferHeight - 0.5) * context.heightIm;
         
         double absolute;
         int i = 0;
@@ -191,16 +233,16 @@ public class MandelbrotCalculator implements Runnable {
             im = nextim;
             i++;
             absolute = re * re + im * im;
-        } while (!aborted && absolute <= threshold && i < iterationLimit);
+        } while (!aborted && absolute <= THRESHOLD_SQR && i < iterationLimit);
         
         if (aborted) {
             return 0;
         } else if (i < iterationLimit) {
             // the value is diverging
-            return i + threshold / absolute;
+            return i + THRESHOLD_SQR / absolute;
         } else {
             // the value is not diverging
-            return -absolute / threshold;
+            return -absolute / THRESHOLD_SQR;
         }
     }
     
