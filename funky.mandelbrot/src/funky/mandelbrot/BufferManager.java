@@ -17,8 +17,10 @@ public class BufferManager {
     
     /** initial width of the viewed fractal. */
     private static final double START_WIDTH = 4.0;
-    /** number of calculation worker threads. */
-    private static final int WORKER_THREADS = 3;
+    /** minimal number of calculation worker threads. */
+    private static final int MIN_WORKER_THREADS = 2;
+    /** approximate number of graphics updates per second. */
+    private static final int FRAMES_PER_SEC = 20;
     
     /**
      * Determine an index into a buffer array using the given buffer width.
@@ -49,12 +51,16 @@ public class BufferManager {
     private final ExecutorService executorService = Executors.newCachedThreadPool();
     /** the currently used buffer. */
     private int[] valueBuffer = new int[0];
-    /** the secondary buffer used for copying values. */
+    /** the secondary value buffer used for copying. */
     private int[] secondaryValueBuffer;
     /** the width of the buffers in pixels. */
     private int pixelWidth;
     /** the height of the buffers in pixels. */
     private int pixelHeight;
+    /** marker field indicating which pixels have to be recalculated. */
+    private boolean[][] dirtyBuffer;
+    /** the secondary dirty buffer used for copying. */
+    private boolean[][] secondaryDirtyBuffer;
 
     /**
      * Shut down the calculator by terminating all worker threads.
@@ -106,7 +112,8 @@ public class BufferManager {
     
     /**
      * Set the complex start value for iterations. The start value determines the first element
-     * of the computed sequence of complex numbers.
+     * of the computed sequence of complex numbers. The default start value (0, 0) generates
+     * the Mandelbrot set.
      * 
      * @param startRe real part of the start value
      * @param startIm imaginary part of the start value
@@ -114,6 +121,18 @@ public class BufferManager {
     public void setStart(double startRe, double startIm) {
         context.startRe = startRe;
         context.startIm = startIm;
+    }
+    
+    /**
+     * Set the factor used to determine the limit on the number of iterations. This limit is
+     * determined dynamically depending on the current zoom level. The higher the factor,
+     * the more iterations are done for non-diverging pixels, hence calculations take more time,
+     * but the resulting images are more accurate.
+     * 
+     * @param iterationFactor factor for the computed limit on the number of iterations
+     */
+    public void setIterationFactor(double iterationFactor) {
+        context.iterationFactor = iterationFactor;
     }
     
     /**
@@ -143,6 +162,13 @@ public class BufferManager {
         
         int[] oldBuffer = valueBuffer;
         int[] newBuffer = new int[newWidth * newHeight];
+        boolean[][] oldDirty = dirtyBuffer;
+        boolean[][] newDirty = new boolean[newWidth][newHeight];
+        for (int y = 0; y < newHeight; y++) {
+            for (int x = 0; x < newWidth; x++) {
+                newDirty[x][y] = true;
+            }
+        }
         
         // prepare values for copying the content that is still visible after resizing
         int copyWidth = Math.min(oldWidth, newWidth);
@@ -163,10 +189,11 @@ public class BufferManager {
         }
         
         // copy content from the old to the new buffer
-        for (int x = 0; x < copyWidth; x++) {
-            for (int y = 0; y < copyHeight; y++) {
+        for (int y = 0; y < copyHeight; y++) {
+            for (int x = 0; x < copyWidth; x++) {
                 newBuffer[index(newxStart + x, newyStart + y, newWidth)]
                         = oldBuffer[index(oldxStart + x, oldyStart + y, oldWidth)];
+                newDirty[newxStart + x][newyStart + y] = oldDirty[oldxStart + x][oldyStart + y];
             }
         }
 
@@ -185,9 +212,11 @@ public class BufferManager {
         pixelHeight = newHeight;
         secondaryValueBuffer = null;
         valueBuffer = newBuffer;
+        secondaryDirtyBuffer = null;
+        dirtyBuffer = newDirty;
         
         // trigger a recalculation
-        recalculate(new Rectangle(newWidth, newHeight), true);
+        recalculate(new Rectangle(newWidth, newHeight));
     }
     
     /**
@@ -206,6 +235,11 @@ public class BufferManager {
         int[] newBuffer = secondaryValueBuffer;
         if (newBuffer == null) {
             newBuffer = new int[pixelWidth * pixelHeight];
+        }
+        boolean[][] oldDirty = dirtyBuffer;
+        boolean[][] newDirty = secondaryDirtyBuffer;
+        if (newDirty == null) {
+            newDirty = new boolean[pixelWidth][pixelHeight];
         }
         
         // prepare values for copying the content that is still visible after translation
@@ -227,14 +261,17 @@ public class BufferManager {
         }
         
         // copy content from the old to the new buffer
-        for (int x = 0; x < pixelWidth; x++) {
-            for (int y = 0; y < pixelHeight; y++) {
+        for (int y = 0; y < pixelHeight; y++) {
+            for (int x = 0; x < pixelWidth; x++) {
                 if (x >= newxStart && x < newxStart + copyWidth
                         && y >= newyStart && y < newyStart + copyHeight) {
-                    newBuffer[index(x, y)] = oldBuffer[index(oldxStart + x - newxStart,
-                            oldyStart + y - newyStart)];
+                    int oldx = oldxStart + x - newxStart;
+                    int oldy = oldyStart + y - newyStart; 
+                    newBuffer[index(x, y)] = oldBuffer[index(oldx, oldy)];
+                    newDirty[x][y] = oldDirty[oldx][oldy];
                 } else {
                     newBuffer[index(x, y)] = 0xffffffff;
+                    newDirty[x][y] = true;
                 }
             }
         }
@@ -244,9 +281,11 @@ public class BufferManager {
         context.centerIm -= deltay * context.heightIm / pixelHeight;
         valueBuffer = newBuffer;
         secondaryValueBuffer = oldBuffer;
+        dirtyBuffer = newDirty;
+        secondaryDirtyBuffer = oldDirty;
 
         // trigger a recalculation
-        recalculate(new Rectangle(pixelWidth, pixelHeight), true);
+        recalculate(new Rectangle(pixelWidth, pixelHeight));
     }
     
     /**
@@ -338,11 +377,12 @@ public class BufferManager {
         }
 
         // scale the view according to the zoom factor
-        for (int x = 0; x < pixelWidth; x++) {
-            for (int y = 0; y < pixelHeight; y++) {
+        for (int y = 0; y < pixelHeight; y++) {
+            for (int x = 0; x < pixelWidth; x++) {
                 double sourcex = focusx + factor * (x - focusx);
                 double sourcey = focusy + factor * (y - focusy);
                 newBuffer[index(x, y)] = smoothColor(sourcex, sourcey);
+                dirtyBuffer[x][y] = true;
             }
         }
 
@@ -358,7 +398,7 @@ public class BufferManager {
         secondaryValueBuffer = oldBuffer;
 
         // trigger a recalculation
-        recalculate(new Rectangle(pixelWidth, pixelHeight), false);
+        recalculate(new Rectangle(pixelWidth, pixelHeight));
     }
     
     /**
@@ -373,25 +413,25 @@ public class BufferManager {
     }
     
     /**
-     * Perform a recalculation using a worker thread.
+     * Perform a recalculation using a number of worker threads.
      * 
-     * @param buffer the buffer to use for calculation
      * @param area the area that shall be computed
-     * @param onlyBlanks if true, only buffer values that are zero are recalculated,
-     *      otherwise all values are recalculated
      */
-    private void recalculate(Rectangle area, boolean onlyBlanks) {
+    private void recalculate(Rectangle area) {
+        int cores = Runtime.getRuntime().availableProcessors();
+        int workerThreads = Math.max(cores, MIN_WORKER_THREADS);
+        long reportPeriod = workerThreads * (1000 / FRAMES_PER_SEC);
         synchronized (context.runningCalculators) {
-            int width = area.width / WORKER_THREADS;
-            int x = area.x;
-            for (int i = 0; i < WORKER_THREADS; i++) {
-                if (i == WORKER_THREADS - 1) {
-                    width = area.width - (x - area.x);
+            int height = area.height / workerThreads;
+            int y = area.y;
+            for (int i = 0; i < workerThreads; i++) {
+                if (i == workerThreads - 1) {
+                    height = area.height - (y - area.y);
                 }
                 MandelbrotCalculator calculator = new MandelbrotCalculator(context, valueBuffer,
-                        pixelWidth, pixelHeight, new Rectangle(x, area.y, width, area.height),
-                        onlyBlanks, true);
-                x += width;
+                        pixelWidth, pixelHeight, new Rectangle(area.x, y, area.width, height), dirtyBuffer,
+                        reportPeriod);
+                y += height;
                 context.runningCalculators.add(calculator);
                 executorService.submit(calculator);
             }

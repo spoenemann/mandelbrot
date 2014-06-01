@@ -16,9 +16,6 @@ import java.util.HashSet;
  */
 public class MandelbrotCalculator implements Runnable {
     
-    /** factor for oversampling the created images. */
-    private static final int OVERSAMPLING = 4;
-    
     /**
      * The context data are shared among all instances of the calculator class.
      */
@@ -41,16 +38,16 @@ public class MandelbrotCalculator implements Runnable {
         double widthRe;
         /** imaginary part of the size of the viewed area (height). */
         double heightIm;
+        /** factor for the computed limit on the number of iterations. */
+        double iterationFactor = 15.0;
         /** controls whether oversampling is used for computing pixel colors. */
-        boolean useOversampling;
+        boolean useOversampling = false;
     }
-    
-    /** factor for the computed limit on the number of iterations. */
-    private static final double ITERATION_FACTOR = 15.0;
+
+    /** factor for oversampling the created images. */
+    private static final int OVERSAMPLING = 4;
     /** threshold for the absolute value beyond which diversion is detected. */
     private static final double DIVERGENCE_THRESHOLD = 2.0;
-    /** minimal time in milliseconds between reports. */
-    private static final long CALCULATION_REPORT_PERIOD = 100;
     /** initial sleep time before worker threads start their work. */
     private static final long INITIAL_SLEEP_TIME = 150;
     
@@ -64,11 +61,12 @@ public class MandelbrotCalculator implements Runnable {
     private int bufferHeight;
     /** the area that shall be computed by this worker. */
     private final Rectangle area;
-    /** if true, only buffer values that are zero are recalculated,
-     *  otherwise all values are recalculated. */
-    private final boolean onlyBlanks;
+    /** marker field indicating which pixels have to be recalculated. */
+    private final boolean[][] dirty;
     /** whether the calculation process shall be aborted. */
     private boolean aborted = false;
+    /** minimal time in milliseconds between reports. */
+    private final long reportPeriod;
     
     /**
      * Create a calculation worker that can be submitted to a thread pool.
@@ -78,17 +76,18 @@ public class MandelbrotCalculator implements Runnable {
      * @param bufferWidth the width of the buffer in pixels
      * @param bufferHeight the height of the buffer in pixels
      * @param area the area that shall be computed by this worker
-     * @param onlyBlanks if true, only buffer values that are zero are recalculated,
-     *      otherwise all values are recalculated
+     * @param dirty marker field indicating which pixels have to be recalculated
+     * @param reportPeriod minimal time in milliseconds between reports sent to the listeners
      */
     public MandelbrotCalculator(Context context, int[] buffer, int bufferWidth, int bufferHeight,
-            Rectangle area, boolean onlyBlanks, boolean useOversampling) {
+            Rectangle area, boolean[][] dirty, long reportPeriod) {
         this.context = context;
         this.buffer = buffer;
         this.bufferWidth = bufferWidth;
         this.bufferHeight = bufferHeight;
         this.area = area;
-        this.onlyBlanks = onlyBlanks;
+        this.dirty = dirty;
+        this.reportPeriod = reportPeriod;
     }
     
     /**
@@ -109,17 +108,19 @@ public class MandelbrotCalculator implements Runnable {
             }
             
             // the number of iterations is limited dynamically depending on the zoom factor
-            int iterationLimit = (int) (ITERATION_FACTOR * Math.log(bufferWidth / context.widthRe));
+            int iterationLimit = (int) (context.iterationFactor
+                    * Math.log(bufferWidth / context.widthRe));
             
             int reportStart = area.y;
             long lastReport = System.currentTimeMillis();
             for (int y = area.y; y < area.y + area.height; y++) {
                 for (int x = area.x; x < area.x + area.width; x++) {
-                    int index = BufferManager.index(x, y, bufferWidth);
-                    if (!onlyBlanks || isBlank(buffer[index])) {
+                    if (dirty[x][y]) {
+                        int index = BufferManager.index(x, y, bufferWidth);
                         
                         // calculate the current pixel and store it into the buffer
                         buffer[index] = calculateColor(x, y, iterationLimit);
+                        dirty[x][y] = false;
                     }
                     
                     if (aborted) {
@@ -128,7 +129,7 @@ public class MandelbrotCalculator implements Runnable {
                 }
                 
                 long currentTime = System.currentTimeMillis();
-                if (currentTime - lastReport >= CALCULATION_REPORT_PERIOD) {
+                if (currentTime - lastReport >= reportPeriod) {
                     // send a report to the viewer component so it can draw a portion of the fractal
                     Rectangle areaToReport = new Rectangle(area.x, reportStart,
                             area.width, y - reportStart + 1);
@@ -150,24 +151,13 @@ public class MandelbrotCalculator implements Runnable {
             }
         } catch (InterruptedException exception) {
             // terminate the worker thread
-        } catch (RuntimeException exception) {
-            exception.printStackTrace();
+        } catch (Throwable throwable) {
+            throwable.printStackTrace();
         } finally {
             synchronized (context.runningCalculators) {
                 context.runningCalculators.remove(this);
             }
         }
-    }
-    
-    /**
-     * Determine whether the given pixel value is blank, that is it has probably not been
-     * assigned a color yet.
-     * 
-     * @param value a pixel value
-     * @return true if the value is interpreted as blank
-     */
-    private boolean isBlank(int value) {
-        return (value & 0xffffff) == 0 || (value & 0xffffff) == 0xffffff;
     }
     
     private static final double OVERSMP_INCR = 1.0 / OVERSAMPLING;
