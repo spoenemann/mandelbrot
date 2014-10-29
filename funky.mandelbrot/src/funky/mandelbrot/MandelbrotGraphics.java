@@ -28,14 +28,14 @@ public class MandelbrotGraphics {
     public static final double ZOOM_PER_WHEEL_UNIT = 1.01;
 
     /** the color used for non-diverging regions. */
-    private static final int NON_DIVERGE_COLOR = rgb(96, 32, 32);
+    private static final Pixel NON_DIVERGE_COLOR = new Pixel(96, 32, 32);
     /** the number of iterations after which the color gradient repeats. */
     private static final int COLOR_PERIOD = 64;
     /** the default colorizer. */
     private static final IColorizer DEFAULT_COLORIZER = x -> {
         if (x < 0) {
             // the pixel belongs to the non-diverging set
-            return NON_DIVERGE_COLOR;
+            return new Pixel(NON_DIVERGE_COLOR);
         } else {
             // the pixel belongs to the diverging set
             double remainder = (int) x % COLOR_PERIOD + x - Math.floor(x);
@@ -45,24 +45,9 @@ public class MandelbrotGraphics {
             } else {
                 shade = (int) Math.round(255 * (COLOR_PERIOD - remainder) / (COLOR_PERIOD / 2));
             }
-            return rgb(shade, shade, 224);
+            return new Pixel(shade, shade, 224);
         }
     };
-    
-    /**
-     * Convert the specified color into the ARGB format.
-     * 
-     * @param r the red color value
-     * @param g the green color value
-     * @param b the blue color value
-     * @return the corresponding ARGB value
-     */
-    private static int rgb(int r, int g, int b) {
-        if (r > 0xff || g > 0xff || b > 0xff || r < 0 || g < 0 || b < 0) {
-            throw new IllegalArgumentException("r = " + r + ", g = " + g + ", b = " + b);
-        }
-        return 0xff000000 | (r << 16) | (g << 8) | b;
-    }
     
     /** the canvas on which we draw the fractal. */
     private final Canvas canvas;

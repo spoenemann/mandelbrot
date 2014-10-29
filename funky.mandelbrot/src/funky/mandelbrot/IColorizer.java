@@ -18,12 +18,9 @@ public interface IColorizer {
      * be bounded, the result is between 0 and -1. In this case it is derived from the last
      * computed sequence value.
      * 
-     * <p>Color values must conform to the ARGB format used by {@link javafx.scene.image.PixelWriter}.
-     * The color components are stored in order, from MSb to LSb: alpha, red, green, blue.</p>
-     * 
      * @param calcResult a calculation result
      * @return a corresponding color value
      */
-    int color(double calcResult);
+    Pixel color(double calcResult);
 
 }

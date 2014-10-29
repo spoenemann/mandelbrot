@@ -40,20 +40,20 @@ public class MandelbrotCalculator implements Runnable {
         double heightIm;
         /** factor for the computed limit on the number of iterations. */
         double iterationFactor = 15.0;
-        /** controls whether oversampling is used for computing pixel colors. */
-        boolean useOversampling = false;
     }
 
-    /** factor for oversampling the created images. */
-    private static final int OVERSAMPLING = 4;
+    /** recursion limit for oversampling. */
+    private static final int OVERSAMPLING_LIMIT = 2;
     /** threshold for the absolute value beyond which diversion is detected. */
     private static final double DIVERGENCE_THRESHOLD = 2.0;
     /** initial sleep time before worker threads start their work. */
-    private static final long INITIAL_SLEEP_TIME = 150;
+    private static final long INITIAL_SLEEP_TIME = 100;
     
     /** the context data used for calculations. */
     private final Context context;
-    /** the buffer into which values are written. */
+    /** the pixels with computed color values. */
+    private final Pixel[][] pixels;
+    /** the buffer into which ARGB values are written. */
     private final int[] buffer;
     /** the width of the buffer in pixels. */
     private int bufferWidth;
@@ -61,8 +61,6 @@ public class MandelbrotCalculator implements Runnable {
     private int bufferHeight;
     /** the area that shall be computed by this worker. */
     private final Rectangle area;
-    /** marker field indicating which pixels have to be recalculated. */
-    private final boolean[][] dirty;
     /** whether the calculation process shall be aborted. */
     private boolean aborted = false;
     /** minimal time in milliseconds between reports. */
@@ -72,21 +70,21 @@ public class MandelbrotCalculator implements Runnable {
      * Create a calculation worker that can be submitted to a thread pool.
      * 
      * @param context the context data
+     * @param pixels the pixel array that is to be filled
      * @param buffer the buffer into which values are written
      * @param bufferWidth the width of the buffer in pixels
      * @param bufferHeight the height of the buffer in pixels
      * @param area the area that shall be computed by this worker
-     * @param dirty marker field indicating which pixels have to be recalculated
      * @param reportPeriod minimal time in milliseconds between reports sent to the listeners
      */
-    public MandelbrotCalculator(Context context, int[] buffer, int bufferWidth, int bufferHeight,
-            Rectangle area, boolean[][] dirty, long reportPeriod) {
+    public MandelbrotCalculator(Context context, Pixel[][] pixels, int[] buffer, int bufferWidth,
+    		int bufferHeight, Rectangle area, long reportPeriod) {
         this.context = context;
+        this.pixels = pixels;
         this.buffer = buffer;
         this.bufferWidth = bufferWidth;
         this.bufferHeight = bufferHeight;
         this.area = area;
-        this.dirty = dirty;
         this.reportPeriod = reportPeriod;
     }
     
@@ -111,43 +109,39 @@ public class MandelbrotCalculator implements Runnable {
             int iterationLimit = (int) (context.iterationFactor
                     * Math.log(bufferWidth / context.widthRe));
             
-            int reportStart = area.y;
-            long lastReport = System.currentTimeMillis();
-            for (int y = area.y; y < area.y + area.height; y++) {
-                for (int x = area.x; x < area.x + area.width; x++) {
-                    if (dirty[x][y]) {
-                        int index = BufferManager.index(x, y, bufferWidth);
-                        
-                        // calculate the current pixel and store it into the buffer
-                        buffer[index] = calculateColor(x, y, iterationLimit);
-                        dirty[x][y] = false;
-                    }
-                    
-                    if (aborted) {
-                        return;
-                    }
-                }
-                
-                long currentTime = System.currentTimeMillis();
-                if (currentTime - lastReport >= reportPeriod) {
-                    // send a report to the viewer component so it can draw a portion of the fractal
-                    Rectangle areaToReport = new Rectangle(area.x, reportStart,
-                            area.width, y - reportStart + 1);
-                    for (ICalculationListener listener : context.listeners) {
-                        listener.calculated(areaToReport, buffer, bufferWidth);
-                    }
-                    
-                    reportStart = y + 1;
-                    lastReport = currentTime;
-                }
-            }
-            
-            if (reportStart < area.y + area.height) {
-                Rectangle areaToReport = new Rectangle(area.x, reportStart,
-                        area.width, area.y + area.height - reportStart);
-                for (ICalculationListener listener : context.listeners) {
-                    listener.calculated(areaToReport, buffer, bufferWidth);
-                }
+            for (int level = 0; level < OVERSAMPLING_LIMIT; level++) {
+	            int reportStart = area.y;
+	            long lastReport = System.currentTimeMillis();
+	            for (int y = area.y; y < area.y + area.height; y++) {
+	                for (int x = area.x; x < area.x + area.width; x++) {
+                        computePixel(x, y, level, iterationLimit);
+	                    
+	                    if (aborted) {
+	                        return;
+	                    }
+	                }
+	                
+	                long currentTime = System.currentTimeMillis();
+	                if (currentTime - lastReport >= reportPeriod) {
+	                    // send a report to the viewer component so it can draw a portion of the fractal
+	                    Rectangle areaToReport = new Rectangle(area.x, reportStart,
+	                            area.width, y - reportStart + 1);
+	                    for (ICalculationListener listener : context.listeners) {
+	                        listener.calculated(areaToReport, buffer, bufferWidth);
+	                    }
+	                    
+	                    reportStart = y + 1;
+	                    lastReport = currentTime;
+	                }
+	            }
+	            
+	            if (reportStart < area.y + area.height) {
+	                Rectangle areaToReport = new Rectangle(area.x, reportStart,
+	                        area.width, area.y + area.height - reportStart);
+	                for (ICalculationListener listener : context.listeners) {
+	                    listener.calculated(areaToReport, buffer, bufferWidth);
+	                }
+	            }
             }
         } catch (InterruptedException exception) {
             // terminate the worker thread
@@ -160,47 +154,45 @@ public class MandelbrotCalculator implements Runnable {
         }
     }
     
-    private static final double OVERSMP_INCR = 1.0 / OVERSAMPLING;
-    private static final double OVERSMP_START = -0.5 + OVERSMP_INCR / 2;
-    private static final int OVERSMP_SQR = OVERSAMPLING * OVERSAMPLING;
-    
     /**
-     * Calculate the color of the pixel with given coordinates.
+     * Compute the color of the pixel with given coordinates and given oversampling level.
+     * 
+     * TODO check whether is's really necessary to compute the given oversampling level
+     *      (only the border of the set is interesting)
      * 
      * @param x horizontal coordinate in the viewed area
      * @param y vertical coordinate in the viewed area
+     * @param level the oversampling level
      * @param iterationLimit limit on the number of iterations
      * @return color result to be stored in a buffer
      */
-    private int calculateColor(int x, int y, int iterationLimit) {
-        if (context.useOversampling) {
-            int rs = 0;
-            int gs = 0;
-            int bs = 0;
-            double ox = x + OVERSMP_START;
-            for (int i = 0; i < OVERSAMPLING; i++) {
-                double oy = y + OVERSMP_START;
-                for (int j = 0; j < OVERSAMPLING; j++) {
-                    double value = calculateValue(ox, oy, iterationLimit);
-                    int color = context.colorizer.color(value);
-                    rs += (color >> 16) & 0xff;
-                    gs += (color >> 8) & 0xff;
-                    bs += color & 0xff;
-                    oy += OVERSMP_INCR;
-                }
-                ox += OVERSMP_INCR;
-            }
-            return 0xff000000 | (rs / OVERSMP_SQR << 16) | (gs / OVERSMP_SQR << 8) | (bs / OVERSMP_SQR);
+    private void computePixel(int x, int y, int level, int iterationLimit) {
+    	Pixel pixel = pixels[x][y];
+        boolean[] colorChanged = new boolean[1];
+        if (level == 0) {
+        	if (pixel == null) {
+        		colorChanged[0] = true;
+        		double value = computeValue(x, y, iterationLimit);
+        		pixel = context.colorizer.color(value);
+        		pixels[x][y] = pixel;
+        	}
         } else {
-            double value = calculateValue(x, y, iterationLimit);
-            return context.colorizer.color(value);
+        	pixel.addSubpixels(level, (dx, dy) -> {
+        		colorChanged[0] = true;
+        		double value = computeValue(x + dx, y + dy, iterationLimit);
+        		return context.colorizer.color(value);
+        	});
+        }
+        if (colorChanged[0]) {
+            int index = BufferManager.index(x, y, bufferWidth);
+            buffer[index] = pixel.computeAverageARGB();
         }
     }
     
     private static final double THRESHOLD_SQR = DIVERGENCE_THRESHOLD * DIVERGENCE_THRESHOLD;
 
     /**
-     * Calculate a value at the complex position that corresponds to the given pixel coordinates.
+     * Compute a value at the complex position that corresponds to the given pixel coordinates.
      * 
      * @param x horizontal coordinate in the viewed area
      * @param y vertical coordinate in the viewed area
@@ -208,7 +200,7 @@ public class MandelbrotCalculator implements Runnable {
      * @return the number of iterations after which the value exceeds the given threshold,
      *      or the negative iteration limit if the threshold was not reached
      */
-    private double calculateValue(double x, double y, int iterationLimit) {
+    private double computeValue(double x, double y, int iterationLimit) {
         double cre = context.centerRe + (x / bufferWidth - 0.5) * context.widthRe;
         double cim = context.centerIm + (y / bufferHeight - 0.5) * context.heightIm;
         

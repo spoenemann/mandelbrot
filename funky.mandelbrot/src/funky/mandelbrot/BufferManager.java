@@ -49,18 +49,18 @@ public class BufferManager {
     private final MandelbrotCalculator.Context context = new MandelbrotCalculator.Context();
     /** executor service for running worker threads. */
     private final ExecutorService executorService = Executors.newCachedThreadPool();
-    /** the currently used buffer. */
+    /** the currently used pixel buffer. */
+    private Pixel[][] pixels;
+    /** the secondary pixel buffer used for copying. */
+    private Pixel[][] secondaryPixels;
+    /** the currently used ARGB value buffer. */
     private int[] valueBuffer = new int[0];
-    /** the secondary value buffer used for copying. */
+    /** the secondary ARGB value buffer used for copying. */
     private int[] secondaryValueBuffer;
     /** the width of the buffers in pixels. */
     private int pixelWidth;
     /** the height of the buffers in pixels. */
     private int pixelHeight;
-    /** marker field indicating which pixels have to be recalculated. */
-    private boolean[][] dirtyBuffer;
-    /** the secondary dirty buffer used for copying. */
-    private boolean[][] secondaryDirtyBuffer;
 
     /**
      * Shut down the calculator by terminating all worker threads.
@@ -71,9 +71,9 @@ public class BufferManager {
     }
 
     /**
-     * Returns the currently active buffer for calculation results.
+     * Returns the currently active ARGB value buffer for calculation results.
      * 
-     * @return the active buffer
+     * @return the active ARGB value buffer
      */
     public int[] getBuffer() {
         return valueBuffer;
@@ -136,16 +136,6 @@ public class BufferManager {
     }
     
     /**
-     * Enable or disable oversampling of pixels. If oversampling is enabled, computations are
-     * significantly slower, but the resulting images are prettier.
-     * 
-     * @param useOversampling whether oversampling is used for computing pixel colors
-     */
-    public void setOversampling(boolean useOversampling) {
-        context.useOversampling = useOversampling;
-    }
-    
-    /**
      * Change the size of the viewed area and update buffers.
      * 
      * @param newWidth new width of the viewed area, in pixels
@@ -162,13 +152,8 @@ public class BufferManager {
         
         int[] oldBuffer = valueBuffer;
         int[] newBuffer = new int[newWidth * newHeight];
-        boolean[][] oldDirty = dirtyBuffer;
-        boolean[][] newDirty = new boolean[newWidth][newHeight];
-        for (int y = 0; y < newHeight; y++) {
-            for (int x = 0; x < newWidth; x++) {
-                newDirty[x][y] = true;
-            }
-        }
+        Pixel[][] oldPixels = pixels;
+        Pixel[][] newPixels = new Pixel[newWidth][newHeight];
         
         // prepare values for copying the content that is still visible after resizing
         int copyWidth = Math.min(oldWidth, newWidth);
@@ -193,7 +178,7 @@ public class BufferManager {
             for (int x = 0; x < copyWidth; x++) {
                 newBuffer[index(newxStart + x, newyStart + y, newWidth)]
                         = oldBuffer[index(oldxStart + x, oldyStart + y, oldWidth)];
-                newDirty[newxStart + x][newyStart + y] = oldDirty[oldxStart + x][oldyStart + y];
+                newPixels[newxStart + x][newyStart + y] = oldPixels[oldxStart + x][oldyStart + y];
             }
         }
 
@@ -212,8 +197,8 @@ public class BufferManager {
         pixelHeight = newHeight;
         secondaryValueBuffer = null;
         valueBuffer = newBuffer;
-        secondaryDirtyBuffer = null;
-        dirtyBuffer = newDirty;
+        secondaryPixels = null;
+        pixels = newPixels;
         
         // trigger a recalculation
         recalculate(new Rectangle(newWidth, newHeight));
@@ -236,10 +221,10 @@ public class BufferManager {
         if (newBuffer == null) {
             newBuffer = new int[pixelWidth * pixelHeight];
         }
-        boolean[][] oldDirty = dirtyBuffer;
-        boolean[][] newDirty = secondaryDirtyBuffer;
-        if (newDirty == null) {
-            newDirty = new boolean[pixelWidth][pixelHeight];
+        Pixel[][] oldPixels = pixels;
+        Pixel[][] newPixels = secondaryPixels;
+        if (newPixels == null) {
+        	newPixels = new Pixel[pixelWidth][pixelHeight];
         }
         
         // prepare values for copying the content that is still visible after translation
@@ -268,10 +253,10 @@ public class BufferManager {
                     int oldx = oldxStart + x - newxStart;
                     int oldy = oldyStart + y - newyStart; 
                     newBuffer[index(x, y)] = oldBuffer[index(oldx, oldy)];
-                    newDirty[x][y] = oldDirty[oldx][oldy];
+                    newPixels[x][y] = oldPixels[oldx][oldy];
                 } else {
                     newBuffer[index(x, y)] = 0xffffffff;
-                    newDirty[x][y] = true;
+                    newPixels[x][y] = null;
                 }
             }
         }
@@ -281,8 +266,8 @@ public class BufferManager {
         context.centerIm -= deltay * context.heightIm / pixelHeight;
         valueBuffer = newBuffer;
         secondaryValueBuffer = oldBuffer;
-        dirtyBuffer = newDirty;
-        secondaryDirtyBuffer = oldDirty;
+        pixels = newPixels;
+        secondaryPixels = oldPixels;
 
         // trigger a recalculation
         recalculate(new Rectangle(pixelWidth, pixelHeight));
@@ -290,6 +275,8 @@ public class BufferManager {
     
     /**
      * Determine a smooth color from double precision coordinates.
+     * 
+     * TODO use {@link Pixel} and its subpixels to get a more precise color value
      * 
      * @param x the x coordinate
      * @param y the y coordinate
@@ -382,7 +369,7 @@ public class BufferManager {
                 double sourcex = focusx + factor * (x - focusx);
                 double sourcey = focusy + factor * (y - focusy);
                 newBuffer[index(x, y)] = smoothColor(sourcex, sourcey);
-                dirtyBuffer[x][y] = true;
+                pixels[x][y] = null;
             }
         }
 
@@ -428,8 +415,8 @@ public class BufferManager {
                 if (i == workerThreads - 1) {
                     height = area.height - (y - area.y);
                 }
-                MandelbrotCalculator calculator = new MandelbrotCalculator(context, valueBuffer,
-                        pixelWidth, pixelHeight, new Rectangle(area.x, y, area.width, height), dirtyBuffer,
+                MandelbrotCalculator calculator = new MandelbrotCalculator(context, pixels, valueBuffer,
+                        pixelWidth, pixelHeight, new Rectangle(area.x, y, area.width, height),
                         reportPeriod);
                 y += height;
                 context.runningCalculators.add(calculator);
