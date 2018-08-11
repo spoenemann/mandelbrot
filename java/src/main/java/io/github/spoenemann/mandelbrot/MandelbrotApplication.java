@@ -1,7 +1,7 @@
 /**
  * Funky Mandelbrot Application (c) 2013 by Miro
  */
-package funky.mandelbrot;
+package io.github.spoenemann.mandelbrot;
 
 import javafx.application.Application;
 import javafx.beans.value.ObservableValue;

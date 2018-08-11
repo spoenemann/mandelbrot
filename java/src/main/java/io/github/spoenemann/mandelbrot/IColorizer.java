@@ -1,7 +1,7 @@
 /**
  * Funky Mandelbrot Application (c) 2014 by Miro
  */
-package funky.mandelbrot;
+package io.github.spoenemann.mandelbrot;
 
 /**
  * Interface for functions that map calculation results to colors.

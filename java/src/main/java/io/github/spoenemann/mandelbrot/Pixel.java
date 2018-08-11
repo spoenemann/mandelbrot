@@ -1,7 +1,7 @@
 /**
  * Funky Mandelbrot Application (c) 2014 by Miro
  */
-package funky.mandelbrot;
+package io.github.spoenemann.mandelbrot;
 
 import java.util.LinkedList;
 import java.util.function.BiFunction;
