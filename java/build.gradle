@@ -1,7 +1,12 @@
 apply plugin: 'java'
 apply plugin: 'eclipse'
+apply plugin: 'application'
 
 version = '0.1'
 group = 'io.github.spoenemann'
 
 sourceCompatibility = '1.8'
+
+mainClassName = 'io.github.spoenemann.mandelbrot.MandelbrotApplication'
+
+build.dependsOn(installDist)
